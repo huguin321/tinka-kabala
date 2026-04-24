@@ -1,0 +1,427 @@
+
+================================================================================
+src\config\__init__.py
+================================================================================
+
+
+
+================================================================================
+src\config\config_loader.py
+================================================================================
+
+import configparser
+import os
+
+
+def load_config():
+    config = configparser.ConfigParser()
+
+    # Ruta absoluta al config.ini (sube dos niveles desde este archivo)
+    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    config_path = os.path.join(base_dir, "config.ini")
+
+    config.read(config_path)
+
+    return {
+        "host": config["mysql"]["host"],
+        "user": config["mysql"]["usuario"],
+        "password": config["mysql"]["contrasena"],
+        "database": config["mysql"]["base_de_datos"],
+    }
+
+
+================================================================================
+src\config\game_config.py
+================================================================================
+
+TINKA_CONFIG = {
+    "name": "Tinka",
+    "table": "TblTinka",
+    "max_number": 53,
+    "numbers_count": 6
+}
+
+KABALA_CONFIG = {
+    "name": "Kabala",
+    "table": "TblKabala",
+    "max_number": 40,
+    "numbers_count": 6
+}
+
+
+================================================================================
+src\database\__init__.py
+================================================================================
+
+
+
+================================================================================
+src\database\connection.py
+================================================================================
+
+import logging
+
+import mysql.connector
+
+from src.config.config_loader import load_config
+
+
+def get_connection():
+    config = load_config()
+
+    try:
+        conn = mysql.connector.connect(
+            host=config["host"],
+            user=config["user"],
+            password=config["password"],
+            database=config["database"],
+        )
+        logging.info("Conexión BD OK")
+        return conn
+
+    except mysql.connector.Error as err:
+        logging.error(f"Error BD: {err}")
+        return None
+
+
+================================================================================
+src\repository\__init__.py
+================================================================================
+
+
+
+================================================================================
+src\repository\game_repository.py
+================================================================================
+
+from src.database.connection import get_connection
+
+
+def get_winning_combinations(table_name):
+    conn = get_connection()
+    if not conn:
+        return {}
+
+    cursor = conn.cursor()
+
+    query = f"""
+        SELECT fecha, NumUno, NumDos, NumTre, NumCua, NumCin, NumSei 
+        FROM {table_name}
+    """
+
+    cursor.execute(query)
+
+    result = {
+        tuple(sorted(row[1:])): row[0]
+        for row in cursor.fetchall()
+    }
+
+    cursor.close()
+    conn.close()
+
+    return result
+
+
+def get_last_draws(table_name, limit=4):
+    conn = get_connection()
+    if not conn:
+        return []
+
+    cursor = conn.cursor()
+
+    query = f"""
+        SELECT NumUno, NumDos, NumTre, NumCua, NumCin, NumSei 
+        FROM {table_name}
+        ORDER BY fecha DESC
+        LIMIT {limit}
+    """
+
+    cursor.execute(query)
+
+    result = [tuple(row) for row in cursor.fetchall()]
+
+    cursor.close()
+    conn.close()
+
+    return result
+
+
+================================================================================
+src\services\__init__.py
+================================================================================
+
+
+
+================================================================================
+src\services\generator.py
+================================================================================
+
+import logging
+import random
+
+from src.repository.game_repository import get_last_draws, get_winning_combinations
+from src.services.validator import validate_combination, calculate_entropy
+
+
+def save_successful(combination):
+    with open("exitosos_tinka.txt", "a") as file:
+        file.write(f"{combination}\n")
+
+    logging.info(f"Combinación guardada: {combination}")
+
+
+def generate_numbers(max_number, numbers_count, table_name):
+    history = get_last_draws(table_name)
+    winning_combinations = get_winning_combinations(table_name)
+
+    attempts = 0
+
+    while True:
+        attempts += 1
+
+        combination = tuple(sorted(random.sample(range(1, max_number + 1), numbers_count)))
+        entropy = calculate_entropy(combination)
+
+        is_valid, reason = validate_combination(
+            combination,
+            history,
+            winning_combinations
+        )
+
+        if entropy > 2.2 and combination not in winning_combinations and is_valid:
+            logging.info(f"Generada en {attempts} intentos: {combination}")
+            save_successful(combination)
+            return combination
+
+        else:
+            logging.warning(
+                f"Intento {attempts}: {combination} rechazada ({reason}, entropía={entropy})"
+            )
+
+
+================================================================================
+src\services\validator.py
+================================================================================
+
+import math
+
+from scipy.spatial import distance
+
+
+def calculate_entropy(combination):
+    valores = list(set(combination))
+    probabilidades = [combination.count(v) / len(combination) for v in valores]
+    entropia = -sum(p * math.log2(p) for p in probabilidades)
+    return entropia
+
+
+def validate_repetitions(combination, winning_combinations):
+    for previous_combination, fecha in winning_combinations.items():
+        coincidencias = sum(1 for num in combination if num in previous_combination)
+        if coincidencias > 4:
+            return False
+    return True
+
+
+def calculate_euclidean_distance(combination, history):
+    if not history:
+        return float('inf')
+    return min(distance.euclidean(combination, hist) for hist in history)
+
+
+def calculate_difference_pattern(combination, history):
+    def get_differences(nums):
+        return [nums[i + 1] - nums[i] for i in range(len(nums) - 1)]
+
+    combinacion_dif = get_differences(combination)
+
+    for hist in history:
+        if get_differences(hist) == combinacion_dif:
+            return False
+
+    return True
+
+
+def validate_combination(combination, history, winning_combinations):
+    if not validate_repetitions(combination, winning_combinations):
+        return False, "Demasiados números repetidos de sorteos previos"
+
+    # Consecutivos
+    consecutivos = sum(1 for i in range(5) if combination[i] + 1 == combination[i + 1])
+    if consecutivos >= 3:
+        return False, "Demasiados consecutivos"
+
+    # Rango agrupado
+    if combination[-1] - combination[0] <= 17:
+        return False, "Amontonados"
+
+    # Muy bajos / muy altos
+    if combination[-1] <= 23:
+        return False, "Muy menores"
+    if combination[0] >= 27:
+        return False, "Muy mayores"
+
+    # Pares / impares
+    pares = sum(1 for n in combination if n % 2 == 0)
+    impares = 6 - pares
+
+    if pares >= 5:
+        return False, "Muchos números pares"
+    if impares >= 5:
+        return False, "Muchos números impares"
+
+    # Repeticiones en últimos 4 sorteos
+    if len(history) >= 4:
+        ultimos_4 = history[:4]
+
+        apariciones = {}
+        for sorteo in ultimos_4:
+            for num in sorteo:
+                apariciones[num] = apariciones.get(num, 0) + 1
+
+        repetidos = [n for n in combination if apariciones.get(n, 0) > 2]
+
+        if repetidos:
+            return False, f"Números repetidos 2+ veces: {repetidos}"
+
+    # Dobles consecutivos
+    cont1 = 0
+    if combination[0] == combination[1] - 1 and combination[1] == combination[2] - 1:
+        cont1 += 1
+    if combination[3] == combination[4] - 1 and combination[4] == combination[5] - 1:
+        cont1 += 1
+    if cont1 == 2:
+        return False, "Dobles consecutivos detectados"
+
+    # Dobles por doquier
+    if (combination[0] == combination[1] - 1 and
+            combination[2] == combination[3] - 1 and
+            combination[4] == combination[5] - 1):
+        return False, "Dobles por doquier"
+
+    # Dobles
+    if ((combination[2] == combination[3] - 1 and combination[4] == combination[5] - 1) or
+            (combination[1] == combination[2] - 1 and combination[3] == combination[4] - 1) or
+            (combination[1] == combination[2] - 1 and combination[4] == combination[5] - 1) or
+            (combination[0] == combination[1] - 1 and combination[2] == combination[3] - 1) or
+            (combination[0] == combination[1] - 1 and combination[3] == combination[4] - 1) or
+            (combination[0] == combination[1] - 1 and combination[4] == combination[5] - 1)):
+        return False, "Dobles detectados"
+
+    # Distancia
+    distancia = calculate_euclidean_distance(combination, history)
+    if distancia < 5.0:
+        return False, "Demasiado similar a sorteos anteriores"
+
+    # Patrón
+    if not calculate_difference_pattern(combination, history):
+        return False, "Patrón repetido"
+
+    return True, "Válida"
+
+
+================================================================================
+src\test_config.py
+================================================================================
+
+from src.config.config_loader import load_config
+
+
+def main():
+    config = load_config()
+    print(config)
+
+
+if __name__ == "__main__":
+    main()
+
+
+================================================================================
+src\test_db.py
+================================================================================
+
+from src.database.connection import get_connection
+
+
+def main():
+    conn = get_connection()
+
+    if conn:
+        print("Conexión exitosa")
+        conn.close()
+    else:
+        print("Error de conexión")
+
+
+if __name__ == "__main__":
+    main()
+
+
+================================================================================
+src\test_generator.py
+================================================================================
+
+from src.config.game_config import TINKA_CONFIG, KABALA_CONFIG
+from src.services.generator import generate_numbers
+
+
+def main():
+    tinka = generate_numbers(
+        TINKA_CONFIG["max_number"],
+        TINKA_CONFIG["numbers_count"],
+        TINKA_CONFIG["table"]
+    )
+
+    print("Tinka:", tinka)
+
+    kabala = generate_numbers(
+        KABALA_CONFIG["max_number"],
+        KABALA_CONFIG["numbers_count"],
+        KABALA_CONFIG["table"]
+    )
+
+    print("Kábala:", kabala)
+
+
+if __name__ == "__main__":
+    main()
+
+
+================================================================================
+src\test_repository.py
+================================================================================
+
+from src.repository.game_repository import get_winning_combinations, get_last_draws
+
+
+def main():
+    ganadoras = get_winning_combinations()
+    historial = get_last_draws()
+
+    print("Total combinaciones:", len(ganadoras))
+    print("Últimos sorteos:", historial)
+
+
+if __name__ == "__main__":
+    main()
+
+
+================================================================================
+src\test_validator.py
+================================================================================
+
+from src.services.validator import validate_combination
+
+
+def main():
+    combo = (5, 9, 22, 24, 40, 41)
+    history = [(5, 9, 22, 24, 40, 41)]
+    winning = {}
+
+    result = validate_combination(combo, history, winning)
+    print(result)
+
+
+if __name__ == "__main__":
+    main()
+

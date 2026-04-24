@@ -1,0 +1,933 @@
+﻿
+================================================================================
+exportar_codigo.py
+================================================================================
+
+from pathlib import Path
+
+ROOT = Path(r"D:\Tinka\TnkIntellij")
+OUTPUT = ROOT / "codigo_fuente.txt"
+
+IGNORE_DIRS = {".idea", ".venv", "__pycache__", ".git", "output"}
+IGNORE_FILES = {OUTPUT.name}
+
+
+def should_skip(path: Path) -> bool:
+    return any(part in IGNORE_DIRS for part in path.parts) or path.name in IGNORE_FILES
+
+
+# 🔥 LECTOR INTELIGENTE (SOLUCIÓN AL PROBLEMA)
+def read_file_smart(path: Path) -> str:
+    encodings = ["utf-8", "utf-8-sig", "cp1252", "latin-1"]
+
+    for enc in encodings:
+        try:
+            return path.read_text(encoding=enc)
+        except UnicodeDecodeError:
+            continue
+
+    # último recurso
+    return path.read_text(encoding="utf-8", errors="replace")
+
+
+files = sorted(
+    [p for p in ROOT.rglob("*.py") if not should_skip(p)],
+    key=lambda p: str(p).lower()
+)
+
+with OUTPUT.open("w", encoding="utf-8", newline="\n") as out:
+    for file_path in files:
+        rel = file_path.relative_to(ROOT)
+
+        out.write(f"\n{'=' * 80}\n")
+        out.write(f"{rel}\n")
+        out.write(f"{'=' * 80}\n\n")
+
+        # 🔥 AQUÍ ESTÁ EL CAMBIO CLAVE
+        content = read_file_smart(file_path)
+        out.write(content)
+
+        out.write("\n")
+
+print(f"Generado: {OUTPUT}")
+
+
+================================================================================
+src\config\__init__.py
+================================================================================
+
+
+
+================================================================================
+src\config\config_loader.py
+================================================================================
+
+import configparser
+import os
+
+
+def load_config():
+    config = configparser.ConfigParser()
+
+    # Ruta absoluta al config.ini (sube dos niveles desde este archivo)
+    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    config_path = os.path.join(base_dir, "config.ini")
+
+    config.read(config_path)
+
+    return {
+        "host": config["mysql"]["host"],
+        "user": config["mysql"]["usuario"],
+        "password": config["mysql"]["contrasena"],
+        "database": config["mysql"]["base_de_datos"],
+        "port": config["mysql"].get("port", 3306)
+    }
+
+
+================================================================================
+src\config\game_config.py
+================================================================================
+
+TINKA_CONFIG = {
+    "name": "Tinka",
+    "table": "TblTinka",
+    "max_number": 53,
+    "numbers_count": 6
+}
+
+KABALA_CONFIG = {
+    "name": "Kabala",
+    "table": "TblKabala",
+    "max_number": 40,
+    "numbers_count": 6
+}
+
+
+================================================================================
+src\database\__init__.py
+================================================================================
+
+
+
+================================================================================
+src\database\connection.py
+================================================================================
+
+import logging
+
+import mysql.connector
+
+from src.config.config_loader import load_config
+
+logger = logging.getLogger(__name__)
+
+
+def get_connection(source="unknown"):
+    config = load_config()
+
+    try:
+        conn = mysql.connector.connect(
+            host=config["host"],
+            user=config["user"],
+            password=config["password"],
+            database=config["database"],
+            port=int(config["port"])
+        )
+
+        logger.info(f"Conexión BD OK - {source} - id: {id(conn)}")
+
+        return conn
+
+    except mysql.connector.Error as err:
+        logger.error(f"Error BD: {err}")
+        return None
+
+
+================================================================================
+src\migration\__init__.py
+================================================================================
+
+
+
+================================================================================
+src\migration\load_txt_dual_clean_log.py
+================================================================================
+
+import os
+from datetime import datetime
+
+import mysql.connector
+
+from src.config.config_loader import load_config
+
+# =========================
+# CONFIG
+# =========================
+FILE_MAP = {
+    "Resul_Tnk.txt": "TblTinka",
+    "Resul_Kbl.txt": "TblKabala"
+}
+
+
+# =========================
+# CONEXIONES
+# =========================
+def get_local_connection():
+    return mysql.connector.connect(
+        host="localhost",
+        user="root",
+        password="M14J35u5=uWu",
+        database="tinka"
+    )
+
+
+def get_railway_connection():
+    config = load_config()
+
+    return mysql.connector.connect(
+        host=config["host"],
+        user=config["user"],
+        password=config["password"],
+        database=config["database"],
+        port=int(config["port"])
+    )
+
+
+# =========================
+# LEER Y LIMPIAR TXT
+# =========================
+def read_and_clean(file_path):
+    registros = []
+
+    with open(file_path, "r", encoding="utf-8") as file:
+        for line in file:
+            line = line.strip()
+            if not line:
+                continue
+
+            parts = line.split()
+
+            # fecha
+            fecha_raw = parts[0]
+            fecha = datetime.strptime(fecha_raw, "%d/%m/%Y").date()
+
+            # números → quitar ceros + ordenar
+            numeros = sorted([int(n) for n in parts[1:]])
+
+            registros.append((fecha, *numeros))
+
+    # ordenar cronológicamente
+    registros.sort(key=lambda x: x[0])
+    return registros
+
+
+# =========================
+# INSERT OPTIMIZADO
+# =========================
+def process_records(conn, table, data, db_name):
+    cursor = conn.cursor()
+
+    insert_sql = f"""
+        INSERT IGNORE INTO {table}
+        (fecha, NumUno, NumDos, NumTre, NumCua, NumCin, NumSei)
+        VALUES (%s,%s,%s,%s,%s,%s,%s)
+    """
+
+    insertados = 0
+    ignorados = 0
+
+    for registro in data:
+        cursor.execute(insert_sql, registro)
+
+        if cursor.rowcount == 1:
+            print(f"✅ [{db_name}] INSERTADO: {registro}")
+            insertados += 1
+        else:
+            print(f"⚠️ [{db_name}] YA EXISTE: {registro}")
+            ignorados += 1
+
+    conn.commit()
+    cursor.close()
+
+    print(f"\n📊 [{db_name}] RESUMEN:")
+    print(f"✔ Insertados: {insertados}")
+    print(f"⚠️ Ignorados: {ignorados}")
+
+
+# =========================
+# PROCESAR ARCHIVO
+# =========================
+def process_file(file_path):
+    file_name = os.path.basename(file_path)  # 👈 CLAVE
+
+    if file_name not in FILE_MAP:
+        print(f"❌ Archivo no reconocido: {file_name}")
+        return
+
+    table = FILE_MAP[file_name]
+
+    print(f"\n📄 Procesando: {file_name} → {table}")
+
+    data = read_and_clean(file_path)
+
+    print(f"➡️ Registros procesados: {len(data)}")
+
+    if not data:
+        print("⚠️ Sin datos")
+        return
+
+    local_conn = get_local_connection()
+    railway_conn = get_railway_connection()
+
+    try:
+        print("\n--- LOCAL ---")
+        process_records(local_conn, table, data, "LOCAL")
+
+        print("\n--- RAILWAY ---")
+        process_records(railway_conn, table, data, "RAILWAY")
+
+    except Exception as e:
+        print(f"❌ Error: {e}")
+
+    finally:
+        local_conn.close()
+        railway_conn.close()
+
+
+# =========================
+# MAIN
+# =========================
+def main():
+    files = [
+        r"D:\Tinka\TnkIntellij\data\Resul_Tnk.txt",
+        r"D:\Tinka\TnkIntellij\data\Resul_Kbl.txt"
+    ]
+
+    for file in files:
+        process_file(file)
+
+
+if __name__ == "__main__":
+    main()
+
+
+================================================================================
+src\migration\migrate_local_to_railway.py
+================================================================================
+
+import mysql.connector
+
+from src.config.config_loader import load_config
+
+
+# =========================
+# CONEXIÓN LOCAL
+# =========================
+def get_local_connection():
+    return mysql.connector.connect(
+        host="localhost",
+        user="root",
+        password="M14J35u5=uWu",
+        database="tinka"
+    )
+
+
+# =========================
+# CONEXIÓN RAILWAY
+# =========================
+def get_railway_connection():
+    config = load_config()
+
+    return mysql.connector.connect(
+        host=config["host"],
+        user=config["user"],
+        password=config["password"],
+        database=config["database"],
+        port=int(config["port"])
+    )
+
+
+# =========================
+# OBTENER DATOS LOCAL
+# =========================
+def fetch_all_data(conn, table):
+    cursor = conn.cursor()
+
+    cursor.execute(f"SELECT * FROM {table}")
+
+    data = cursor.fetchall()
+    columns = cursor.column_names
+
+    cursor.close()
+    return data, columns
+
+
+# =========================
+# INSERTAR EN RAILWAY
+# =========================
+def insert_data(conn, table, columns, data):
+    cursor = conn.cursor()
+
+    cols = ",".join(columns)
+    placeholders = ",".join(["%s"] * len(columns))
+
+    sql = f"INSERT INTO {table} ({cols}) VALUES ({placeholders})"
+
+    cursor.executemany(sql, data)
+    conn.commit()
+
+    cursor.close()
+
+
+# =========================
+# MIGRACIÓN POR TABLA
+# =========================
+def migrate_table(table_name):
+    print(f"\n📦 Migrando tabla: {table_name}")
+
+    local_conn = get_local_connection()
+    railway_conn = get_railway_connection()
+
+    try:
+        # 🔥 OPCIONAL: limpiar tabla en Railway antes de insertar
+        cursor = railway_conn.cursor()
+        cursor.execute(f"DELETE FROM {table_name}")
+        railway_conn.commit()
+        cursor.close()
+
+        # 📥 leer local
+        data, columns = fetch_all_data(local_conn, table_name)
+
+        print(f"➡️ Registros encontrados en LOCAL: {len(data)}")
+
+        if not data:
+            print("⚠️ Tabla vacía, se omite")
+            return
+
+        # 🚀 insertar en Railway
+        insert_data(railway_conn, table_name, columns, data)
+
+        print(f"✅ Migración completada: {table_name}")
+
+    except Exception as e:
+        print(f"❌ Error en tabla {table_name}: {e}")
+
+    finally:
+        local_conn.close()
+        railway_conn.close()
+
+
+# =========================
+# MAIN
+# =========================
+def main():
+    tables = [
+        "TblTinka",
+        "TblKabala"
+        # agrega más si tienes
+    ]
+
+    for table in tables:
+        migrate_table(table)
+
+
+if __name__ == "__main__":
+    main()
+
+
+================================================================================
+src\repository\__init__.py
+================================================================================
+
+
+
+================================================================================
+src\repository\game_repository.py
+================================================================================
+
+from src.database.connection import get_connection
+
+
+def get_winning_combinations(table_name):
+    conn = get_connection("get_winning_combinations")
+    if not conn:
+        return {}
+
+    cursor = conn.cursor()
+
+    query = f"""
+        SELECT fecha, NumUno, NumDos, NumTre, NumCua, NumCin, NumSei 
+        FROM {table_name}
+    """
+
+    cursor.execute(query)
+
+    result = {
+        tuple(sorted(row[1:])): row[0]
+        for row in cursor.fetchall()
+    }
+
+    cursor.close()
+    conn.close()
+
+    return result
+
+
+def get_last_draws(table_name, limit=4):
+    conn = get_connection("get_last_draws")
+    if not conn:
+        return []
+
+    cursor = conn.cursor()
+
+    query = f"""
+        SELECT NumUno, NumDos, NumTre, NumCua, NumCin, NumSei 
+        FROM {table_name}
+        ORDER BY fecha DESC
+        LIMIT {limit}
+    """
+
+    cursor.execute(query)
+
+    result = [tuple(row) for row in cursor.fetchall()]
+
+    cursor.close()
+    conn.close()
+
+    return result
+
+
+================================================================================
+src\run_kabala.py
+================================================================================
+
+from src.config.game_config import KABALA_CONFIG
+from src.services.generator import generate_numbers
+from src.utils.logger import setup_logger
+
+
+def main():
+    setup_logger("kabala")
+
+    result = generate_numbers(
+        KABALA_CONFIG["max_number"],
+        KABALA_CONFIG["numbers_count"],
+        KABALA_CONFIG["table"]
+    )
+
+    print("Kábala:", result)
+
+
+if __name__ == "__main__":
+    main()
+
+
+================================================================================
+src\run_tinka.py
+================================================================================
+
+from src.config.game_config import TINKA_CONFIG
+from src.services.generator import generate_numbers
+from src.utils.logger import setup_logger
+
+
+def main():
+    setup_logger("tinka")
+
+    result = generate_numbers(
+        TINKA_CONFIG["max_number"],
+        TINKA_CONFIG["numbers_count"],
+        TINKA_CONFIG["table"]
+    )
+
+    print("Tinka:", result)
+
+
+if __name__ == "__main__":
+    main()
+
+
+================================================================================
+src\services\__init__.py
+================================================================================
+
+
+
+================================================================================
+src\services\generator.py
+================================================================================
+
+import logging
+import random
+
+from src.repository.game_repository import get_last_draws, get_winning_combinations
+from src.services.validator import validate_combination, calculate_entropy
+
+logger = logging.getLogger(__name__)
+
+
+def save_successful(combination, table_name):
+    file_name = f"exitosos_{table_name}.txt"
+
+    with open(file_name, "a") as file:
+        file.write(f"{combination}\n")
+
+    logger.info(f"Combinación guardada en {file_name}: {combination}")
+
+
+def generate_numbers(max_number, numbers_count, table_name):
+    logger.info(f"Iniciando generación para {table_name}")
+
+    history = get_last_draws(table_name)
+    winning_combinations = get_winning_combinations(table_name)
+
+    attempts = 0
+
+    while True:
+        attempts += 1
+
+        combination = tuple(sorted(random.sample(range(1, max_number + 1), numbers_count)))
+        entropy = calculate_entropy(combination)
+
+        is_valid, reason = validate_combination(
+            combination,
+            history,
+            winning_combinations
+        )
+
+        if entropy > 2.2 and combination not in winning_combinations and is_valid:
+            logger.info(f"Generada en {attempts} intentos: {combination}")
+            save_successful(combination, table_name)
+            return combination
+
+        else:
+            logger.warning(
+                f"Intento {attempts}: {combination} rechazada ({reason}, entropía={round(entropy, 2)})"
+            )
+
+
+================================================================================
+src\services\validator.py
+================================================================================
+
+import math
+
+from scipy.spatial import distance
+
+
+def calculate_entropy(combination):
+    valores = list(set(combination))
+    probabilidades = [combination.count(v) / len(combination) for v in valores]
+    entropia = -sum(p * math.log2(p) for p in probabilidades)
+    return entropia
+
+
+def validate_repetitions(combination, winning_combinations):
+    for previous_combination, fecha in winning_combinations.items():
+        coincidentes = sorted([num for num in combination if num in previous_combination])
+        coincidencias = len(coincidentes)
+
+        if coincidencias > 4:
+            return False, (
+                f"Demasiados números repetidos "
+                f"({coincidencias} coincidencias: {coincidentes}) "
+                f"con {previous_combination} del {fecha}"
+            )
+
+    return True, "OK"
+
+
+def calculate_difference_pattern(combination, history):
+    def get_differences(nums):
+        return [nums[i + 1] - nums[i] for i in range(len(nums) - 1)]
+
+    combinacion_dif = get_differences(combination)
+
+    for hist in history:
+        if get_differences(hist) == combinacion_dif:
+            return False
+
+    return True
+
+
+def get_closest_combination(combination, history, winning_combinations):
+    if not history:
+        return None, "sin historial", float('inf')
+
+    min_dist = float('inf')
+    closest = None
+
+    for hist in history:
+        dist = distance.euclidean(combination, hist)
+        if dist < min_dist:
+            min_dist = dist
+            closest = hist
+
+    fecha = winning_combinations.get(tuple(sorted(closest)), "fecha desconocida")
+
+    return closest, fecha, min_dist
+
+
+def validate_combination(combination, history, winning_combinations):
+    # Repeticiones históricas
+    is_valid, reason = validate_repetitions(combination, winning_combinations)
+    if not is_valid:
+        return False, reason
+
+    # Consecutivos
+    consecutivos = sum(1 for i in range(5) if combination[i] + 1 == combination[i + 1])
+    if consecutivos >= 3:
+        return False, "Demasiados consecutivos"
+
+    # Rango agrupado
+    if combination[-1] - combination[0] <= 17:
+        return False, "Amontonados"
+
+    # Muy bajos / muy altos
+    if combination[-1] <= 23:
+        return False, "Muy menores"
+    if combination[0] >= 27:
+        return False, "Muy mayores"
+
+    # Pares / impares
+    pares = sum(1 for n in combination if n % 2 == 0)
+    impares = 6 - pares
+
+    if pares >= 5:
+        return False, "Muchos números pares"
+    if impares >= 5:
+        return False, "Muchos números impares"
+
+    # Repeticiones en últimos 4 sorteos
+    if len(history) >= 4:
+        ultimos_4 = history[:4]
+
+        apariciones = {}
+        for sorteo in ultimos_4:
+            for num in sorteo:
+                apariciones[num] = apariciones.get(num, 0) + 1
+
+        repetidos = [n for n in combination if apariciones.get(n, 0) > 2]
+
+        if repetidos:
+            return False, f"Números repetidos 2+ veces: {repetidos}"
+
+    # Dobles consecutivos
+    cont1 = 0
+    if combination[0] == combination[1] - 1 and combination[1] == combination[2] - 1:
+        cont1 += 1
+    if combination[3] == combination[4] - 1 and combination[4] == combination[5] - 1:
+        cont1 += 1
+    if cont1 == 2:
+        return False, "Dobles consecutivos detectados"
+
+    # Dobles por doquier
+    if (combination[0] == combination[1] - 1 and
+            combination[2] == combination[3] - 1 and
+            combination[4] == combination[5] - 1):
+        return False, "Dobles por doquier"
+
+    # Dobles
+    if ((combination[2] == combination[3] - 1 and combination[4] == combination[5] - 1) or
+            (combination[1] == combination[2] - 1 and combination[3] == combination[4] - 1) or
+            (combination[1] == combination[2] - 1 and combination[4] == combination[5] - 1) or
+            (combination[0] == combination[1] - 1 and combination[2] == combination[3] - 1) or
+            (combination[0] == combination[1] - 1 and combination[3] == combination[4] - 1) or
+            (combination[0] == combination[1] - 1 and combination[4] == combination[5] - 1)):
+        return False, "Dobles detectados"
+
+    # Distancia (MEJORADA)
+    closest, fecha, distancia = get_closest_combination(
+        combination,
+        history,
+        winning_combinations
+    )
+
+    if distancia < 5.0:
+        return False, (
+            f"Demasiado similar a {closest} del {fecha} "
+            f"(distancia={round(distancia, 2)})"
+        )
+
+    # Patrón
+    if not calculate_difference_pattern(combination, history):
+        return False, "Patrón repetido"
+
+    return True, "Válida"
+
+
+================================================================================
+src\test_config.py
+================================================================================
+
+from src.config.config_loader import load_config
+
+
+def main():
+    config = load_config()
+    print(config)
+
+
+if __name__ == "__main__":
+    main()
+
+
+================================================================================
+src\test_db.py
+================================================================================
+
+from src.database.connection import get_connection
+
+
+def main():
+    conn = get_connection()
+
+    if conn:
+        print("Conexión exitosa")
+        conn.close()
+    else:
+        print("Error de conexión")
+
+
+if __name__ == "__main__":
+    main()
+
+
+================================================================================
+src\test_generator.py
+================================================================================
+
+from src.config.game_config import TINKA_CONFIG, KABALA_CONFIG
+from src.services.generator import generate_numbers
+from src.utils.logger import setup_logger
+
+
+def main():
+    setup_logger()
+
+    tinka = generate_numbers(
+        TINKA_CONFIG["max_number"],
+        TINKA_CONFIG["numbers_count"],
+        TINKA_CONFIG["table"]
+    )
+
+    print("Tinka:", tinka)
+
+    kabala = generate_numbers(
+        KABALA_CONFIG["max_number"],
+        KABALA_CONFIG["numbers_count"],
+        KABALA_CONFIG["table"]
+    )
+
+    print("Kábala:", kabala)
+
+
+if __name__ == "__main__":
+    main()
+
+
+================================================================================
+src\test_repository.py
+================================================================================
+
+from src.repository.game_repository import get_winning_combinations, get_last_draws
+
+
+def main():
+    ganadoras = get_winning_combinations()
+    historial = get_last_draws()
+
+    print("Total combinaciones:", len(ganadoras))
+    print("Últimos sorteos:", historial)
+
+
+if __name__ == "__main__":
+    main()
+
+
+================================================================================
+src\test_validator.py
+================================================================================
+
+from src.services.validator import validate_combination
+
+
+def main():
+    combo = (5, 9, 22, 24, 40, 41)
+    history = [(5, 9, 22, 24, 40, 41)]
+    winning = {}
+
+    result = validate_combination(combo, history, winning)
+    print(result)
+
+
+if __name__ == "__main__":
+    main()
+
+
+================================================================================
+src\utils\__init__.py
+================================================================================
+
+
+
+================================================================================
+src\utils\logger.py
+================================================================================
+
+import logging
+import os
+
+
+def setup_logger(game_name):
+    log_dir = "logs"
+    os.makedirs(log_dir, exist_ok=True)
+
+    log_file = os.path.join(log_dir, f"{game_name.lower()}.log")
+
+    # Limpiar handlers previos
+    for handler in logging.root.handlers[:]:
+        logging.root.removeHandler(handler)
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+        handlers=[
+            logging.FileHandler(log_file, encoding="utf-8"),
+            logging.StreamHandler()
+        ]
+    )
+
+
+================================================================================
+test_generator.py
+================================================================================
+
+from src.config.game_config import TINKA_CONFIG, KABALA_CONFIG
+from src.services.generator import generate_numbers
+from src.utils.logger import setup_logger
+
+
+def main():
+    setup_logger()  # 🔥 ESTO ES LO QUE TE FALTA
+
+    tinka = generate_numbers(
+        TINKA_CONFIG["max_number"],
+        TINKA_CONFIG["numbers_count"],
+        TINKA_CONFIG["table"]
+    )
+
+    print("Tinka:", tinka)
+
+    kabala = generate_numbers(
+        KABALA_CONFIG["max_number"],
+        KABALA_CONFIG["numbers_count"],
+        KABALA_CONFIG["table"]
+    )
+
+    print("Kábala:", kabala)
+
+
+if __name__ == "__main__":
+    main()
+
