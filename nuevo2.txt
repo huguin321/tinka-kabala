@@ -51,70 +51,6 @@ with OUTPUT.open("w", encoding="utf-8", newline="\n") as out:
         out.write("\n")
 
 print(f"✅ Generado: {OUTPUT}")
-<<<<<<< HEAD
-
-================================================================================
-src\check_duplicates.py
-================================================================================
-
-from src.database.sqlite_connection import get_sqlite_connection
-
-TABLAS = ["TblTinka", "TblKabala"]
-
-
-def check_duplicates(table_name):
-    conn = get_sqlite_connection()
-    cursor = conn.cursor()
-
-    try:
-        cursor.execute(f"""
-            SELECT
-                NumUno, NumDos, NumTre, NumCua, NumCin, NumSei,
-                COUNT(*) as veces,
-                GROUP_CONCAT(fecha, ' | ') as fechas
-            FROM {table_name}
-            GROUP BY NumUno, NumDos, NumTre, NumCua, NumCin, NumSei
-            HAVING COUNT(*) > 1
-            ORDER BY veces DESC
-        """)
-
-        rows = cursor.fetchall()
-
-        print(f"\n{'=' * 60}")
-        print(f"DUPLICADOS EN {table_name}")
-        print(f"{'=' * 60}")
-
-        if not rows:
-            print("✅ Sin duplicados")
-            return
-
-        print(f"⚠️ Se encontraron {len(rows)} combinaciones repetidas:\n")
-
-        for row in rows:
-            nums = row[:6]
-            veces = row[6]
-            fechas = row[7]
-            print(f"  {nums} → aparece {veces} veces")
-            print(f"  Fechas: {fechas}")
-            print()
-
-    except Exception as e:
-        print(f"❌ Error al consultar {table_name}: {e}")
-
-    finally:
-        cursor.close()
-        conn.close()
-
-
-def main():
-    for tabla in TABLAS:
-        check_duplicates(tabla)
-
-
-if __name__ == "__main__":
-    main()
-=======
->>>>>>> e0674c4064eb2d470727992f7c368fa1b8783d45
 
 ================================================================================
 src\config\__init__.py
@@ -252,21 +188,8 @@ TINKA_CONFIG = {
     # Historial
     "last_draws_limit": 5,
 
-    # Distancia euclidiana mínima vs últimos sorteos
-    # Formato: número decimal con punto (NO coma)
-    # Ejemplos válidos:   5.0 | 5.11 | 5.9425 | 4.1234
-    # Ejemplos inválidos: 5,0 | "5.0" | cinco | 5,9425
-    # Precisión: hasta 4 decimales recomendado
-    # Mayor valor = más restrictivo | Menor valor = más permisivo
+    # Distancia
     "min_distance": 4.5,
-
-    # Similitud Jaccard mínima para rechazar (0.0 a 1.0)
-    # Mide cuántos números comparten dos combinaciones
-    # Ejemplo: {1,2,3,4,5,6} vs {1,2,3,4,5,7} = 5/7 = 0.71
-    # Ejemplo: {1,2,3,4,5,6} vs {7,8,9,10,11,12} = 0/12 = 0.0
-    # Mayor valor = más restrictivo | Menor valor = más permisivo
-    # Recomendado: 0.6 a 0.8
-    "max_jaccard_similarity": 0.7,
 
     # Máximo de consecutivos permitidos
     "max_consecutive": 2,
@@ -306,21 +229,8 @@ KABALA_CONFIG = {
     # Historial
     "last_draws_limit": 7,
 
-    # Distancia euclidiana mínima vs últimos sorteos
-    # Formato: número decimal con punto (NO coma)
-    # Ejemplos válidos:   5.0 | 5.11 | 5.9425 | 4.1234
-    # Ejemplos inválidos: 5,0 | "5.0" | cinco | 5,9425
-    # Precisión: hasta 4 decimales recomendado
-    # Mayor valor = más restrictivo | Menor valor = más permisivo
+    # Distancia
     "min_distance": 4.5,
-
-    # Similitud Jaccard mínima para rechazar (0.0 a 1.0)
-    # Mide cuántos números comparten dos combinaciones
-    # Ejemplo: {1,2,3,4,5,6} vs {1,2,3,4,5,7} = 5/7 = 0.71
-    # Ejemplo: {1,2,3,4,5,6} vs {7,8,9,10,11,12} = 0/12 = 0.0
-    # Mayor valor = más restrictivo | Menor valor = más permisivo
-    # Recomendado: 0.6 a 0.8
-    "max_jaccard_similarity": 0.7,
 
     # Máximo de consecutivos permitidos
     "max_consecutive": 2,
@@ -362,18 +272,16 @@ import logging
 
 import mysql.connector
 
-from src.config.config_loader import load_config, load_local_config, load_connection_config
+from src.config.config_loader import load_config, load_connection_config
 from src.utils.logger import APP_LOGGER_NAME
 
 logger = logging.getLogger(APP_LOGGER_NAME)
 
 DB_CONFIG = load_config()
-LOCAL_CONFIG = load_local_config()
 CONNECTION_CONFIG = load_connection_config()
 
 
 def get_connection(source):
-    # Intentar Railway primero
     try:
         conn = mysql.connector.connect(
             host=DB_CONFIG["host"],
@@ -383,128 +291,14 @@ def get_connection(source):
             port=int(DB_CONFIG["port"]),
             connection_timeout=CONNECTION_CONFIG["timeout"]
         )
-        logger.info(f"Conexión RAILWAY OK - {source} - id: {id(conn)}")
+
+        logger.info(f"Conexión BD OK - {source} - id: {id(conn)}")
+
         return conn
 
     except mysql.connector.Error as err:
-        logger.error(f"RAILWAY no disponible ({source}): {err}")
-
-    # Fallback a LOCAL
-    try:
-        conn = mysql.connector.connect(
-            host=LOCAL_CONFIG["host"],
-            user=LOCAL_CONFIG["user"],
-            password=LOCAL_CONFIG["password"],
-            database=LOCAL_CONFIG["database"],
-            connection_timeout=CONNECTION_CONFIG["timeout"]
-        )
-        logger.warning(f"Usando LOCAL como fallback - {source} - id: {id(conn)}")
-        return conn
-
-    except mysql.connector.Error as err:
-        logger.error(f"LOCAL tampoco disponible ({source}): {err}")
+        logger.error(f"Error BD: {err}")
         return None
-
-================================================================================
-src\database\create_sqlite_tables.py
-================================================================================
-
-from src.database.sqlite_connection import get_sqlite_connection
-
-
-def create_tables():
-    conn = get_sqlite_connection()
-    cursor = conn.cursor()
-
-    tables = ["TblTinka", "TblKabala"]
-
-    for table in tables:
-        cursor.execute(f"""
-            CREATE TABLE IF NOT EXISTS {table} (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                fecha DATE NOT NULL,
-                NumUno INTEGER NOT NULL,
-                NumDos INTEGER NOT NULL,
-                NumTre INTEGER NOT NULL,
-                NumCua INTEGER NOT NULL,
-                NumCin INTEGER NOT NULL,
-                NumSei INTEGER NOT NULL,
-
-                UNIQUE (
-                    fecha,
-                    NumUno,
-                    NumDos,
-                    NumTre,
-                    NumCua,
-                    NumCin,
-                    NumSei
-                )
-            )
-        """)
-
-        print(f"✅ Tabla creada/verificada: {table}")
-
-    conn.commit()
-    conn.close()
-
-
-if __name__ == "__main__":
-    create_tables()
-
-================================================================================
-src\database\sqlite_connection.py
-================================================================================
-
-import sqlite3
-from pathlib import Path
-
-BASE_DIR = Path(__file__).resolve().parent.parent.parent
-DB_FILE = BASE_DIR / "database" / "tinka.db"
-
-
-def get_sqlite_connection():
-    DB_FILE.parent.mkdir(parents=True, exist_ok=True)
-    return sqlite3.connect(DB_FILE)
-
-================================================================================
-src\database\sqlite_repository.py
-================================================================================
-
-from src.database.sqlite_connection import get_sqlite_connection
-
-
-TABLAS_PERMITIDAS = {"TblTinka", "TblKabala"}
-
-
-def validar_tabla(table_name):
-    if table_name not in TABLAS_PERMITIDAS:
-        raise ValueError(f"Tabla no permitida: {table_name}")
-
-
-def get_table_stats(table_name):
-    validar_tabla(table_name)
-
-    conn = get_sqlite_connection()
-    cursor = conn.cursor()
-
-    try:
-        cursor.execute(f"""
-            SELECT
-                COUNT(*),
-                MAX(fecha)
-            FROM {table_name}
-        """)
-
-        count, max_date = cursor.fetchone()
-
-        return {
-            "count": count or 0,
-            "max_date": max_date
-        }
-
-    finally:
-        cursor.close()
-        conn.close()
 
 ================================================================================
 src\migration\__init__.py
@@ -516,7 +310,6 @@ src\migration\__init__.py
 src\migration\load_txt_dual_clean_log.py
 ================================================================================
 
-import logging
 import os
 from datetime import datetime
 
@@ -538,39 +331,32 @@ CONNECTION_CONFIG = load_connection_config()
 RAILWAY_CONFIG = load_config()
 LOCAL_CONFIG = load_local_config()
 
-logger = logging.getLogger("load_txt")
 
-
-# =========================
-# VALIDACIÓN DE TABLA
-# =========================
 def validar_tabla(table_name):
     if table_name not in TABLAS_PERMITIDAS:
         raise ValueError(f"❌ Tabla no permitida: {table_name}")
 
 
 # =========================
-# CONEXIONES MySQL
+# CONEXIONES
 # =========================
 def get_local_connection():
     try:
-        conn = mysql.connector.connect(
+        return mysql.connector.connect(
             host=LOCAL_CONFIG["host"],
             user=LOCAL_CONFIG["user"],
             password=LOCAL_CONFIG["password"],
             database=LOCAL_CONFIG["database"],
             connection_timeout=CONNECTION_CONFIG["timeout"]
         )
-        logger.info("Conexión LOCAL establecida")
-        return conn
     except mysql.connector.Error as e:
-        logger.warning(f"LOCAL no disponible: {e}")
+        print(f"⚠️ LOCAL no disponible: {e}")
         return None
 
 
 def get_railway_connection():
     try:
-        conn = mysql.connector.connect(
+        return mysql.connector.connect(
             host=RAILWAY_CONFIG["host"],
             user=RAILWAY_CONFIG["user"],
             password=RAILWAY_CONFIG["password"],
@@ -578,10 +364,8 @@ def get_railway_connection():
             port=int(RAILWAY_CONFIG["port"]),
             connection_timeout=CONNECTION_CONFIG["timeout"]
         )
-        logger.info("Conexión RAILWAY establecida")
-        return conn
     except mysql.connector.Error as e:
-        logger.warning(f"RAILWAY no disponible: {e}")
+        print(f"⚠️ RAILWAY no disponible: {e}")
         return None
 
 
@@ -649,20 +433,20 @@ def read_and_clean(file_path, game_config):
             registros.append((fecha, *numeros))
 
     if errores:
-        logger.warning(f"Líneas ignoradas en {os.path.basename(file_path)}:")
+        print(f"\n⚠️ Líneas ignoradas por formato incorrecto:")
         for e in errores:
-            logger.warning(e)
+            print(e)
 
     registros.sort(key=lambda x: x[0])
-    logger.info(f"TXT leído: {len(registros)} registros válidos en {os.path.basename(file_path)}")
     return registros
 
 
 # =========================
-# INSERT MySQL — RÁPIDO CON executemany
+# INSERT OPTIMIZADO
 # =========================
 def process_records(conn, table, data, db_name):
     validar_tabla(table)
+
     cursor = conn.cursor()
 
     insert_sql = f"""
@@ -671,18 +455,29 @@ def process_records(conn, table, data, db_name):
         VALUES (%s,%s,%s,%s,%s,%s,%s)
     """
 
+    insertados = 0
+    ignorados = 0
+
     try:
-        cursor.executemany(insert_sql, data)
+        for registro in data:
+            cursor.execute(insert_sql, registro)
+
+            if cursor.rowcount == 1:
+                print(f"✅ [{db_name}] INSERTADO: {registro}")
+                insertados += 1
+            else:
+                print(f"⚠️ [{db_name}] YA EXISTE: {registro}")
+                ignorados += 1
+
         conn.commit()
 
-        insertados = cursor.rowcount
-        ignorados = len(data) - insertados
-
-        logger.info(f"[{db_name}] Resumen → insertados: {insertados}, ignorados: {ignorados}")
+        print(f"\n📊 [{db_name}] RESUMEN:")
+        print(f"✔ Insertados: {insertados}")
+        print(f"⚠️ Ignorados: {ignorados}")
 
     except Exception as e:
         conn.rollback()
-        logger.error(f"[{db_name}] Error, rollback ejecutado: {e}")
+        print(f"❌ [{db_name}] Error, rollback ejecutado: {e}")
 
     finally:
         cursor.close()
@@ -695,43 +490,50 @@ def process_file(file_path):
     file_name = os.path.basename(file_path)
 
     if file_name not in FILE_MAP:
-        logger.error(f"Archivo no reconocido: {file_name}")
+        print(f"❌ Archivo no reconocido: {file_name}")
         return
 
     game_config = FILE_MAP[file_name]
     table = game_config["table"]
 
-    logger.info(f"{'=' * 60}")
-    logger.info(f"Procesando: {file_name} → {table}")
-    logger.info(f"{'=' * 60}")
+    print(f"\n📄 Procesando: {file_name} → {table}")
 
-    # PASO 1 — Leer y limpiar TXT
     data = read_and_clean(file_path, game_config)
 
+    print(f"➡️ Registros válidos: {len(data)}")
+
     if not data:
-        logger.warning(f"Sin datos válidos en {file_name}")
+        print("⚠️ Sin datos válidos para insertar")
         return
 
-    # PASO 2 — Cargar a MySQL (LOCAL + RAILWAY)
     local_conn = get_local_connection()
     railway_conn = get_railway_connection()
 
     if not local_conn and not railway_conn:
-        logger.error("Sin conexión a LOCAL ni a RAILWAY — carga MySQL omitida")
-    else:
+        print("❌ Sin conexión a LOCAL ni a RAILWAY, operación cancelada")
+        return
+
+    try:
         if local_conn:
-            logger.info("--- Cargando a LOCAL ---")
+            print("\n--- LOCAL ---")
             process_records(local_conn, table, data, "LOCAL")
-            local_conn.close()
         else:
-            logger.warning("LOCAL omitido")
+            print("\n⚠️ LOCAL omitido")
 
         if railway_conn:
-            logger.info("--- Cargando a RAILWAY ---")
+            print("\n--- RAILWAY ---")
             process_records(railway_conn, table, data, "RAILWAY")
-            railway_conn.close()
         else:
-            logger.warning("RAILWAY omitido")
+            print("\n⚠️ RAILWAY omitido")
+
+    except Exception as e:
+        print(f"❌ Error: {e}")
+
+    finally:
+        if local_conn:
+            local_conn.close()
+        if railway_conn:
+            railway_conn.close()
 
 
 # =========================
@@ -739,18 +541,6 @@ def process_file(file_path):
 # =========================
 def main():
     base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-    log_dir = os.path.join(base_dir, "logs")
-    os.makedirs(log_dir, exist_ok=True)
-
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
-        handlers=[
-            logging.StreamHandler(),
-            logging.FileHandler(os.path.join(log_dir, "load_txt.log"), encoding="utf-8")
-        ]
-    )
 
     data_dir = os.path.join(base_dir, "data")
 
@@ -761,7 +551,7 @@ def main():
 
     for file in files:
         if not os.path.exists(file):
-            logger.error(f"Archivo no encontrado: {file}")
+            print(f"❌ Archivo no encontrado: {file}")
             continue
 
         process_file(file)
@@ -770,45 +560,32 @@ def main():
 if __name__ == "__main__":
     main()
 
+
 ================================================================================
-<<<<<<< HEAD
-src\migration\migrate_local_to_railway.py
-================================================================================
-=======
 src\migration\migrate_railway_to_bkp_local.py
 ================================================================================
-
-import logging
-import os
->>>>>>> e0674c4064eb2d470727992f7c368fa1b8783d45
 
 import mysql.connector
 
 from src.config.config_loader import load_config, load_local_config, load_connection_config
-from src.database.sqlite_connection import get_sqlite_connection
 
 TABLAS_PERMITIDAS = {"TblTinka", "TblKabala"}
 CONNECTION_CONFIG = load_connection_config()
 RAILWAY_CONFIG = load_config()
 LOCAL_CONFIG = load_local_config()
 
-logger = logging.getLogger("migrate")
 
-
-# =========================
-# VALIDACIÓN
-# =========================
 def validar_tabla(table_name):
     if table_name not in TABLAS_PERMITIDAS:
         raise ValueError(f"❌ Tabla no permitida: {table_name}")
 
 
 # =========================
-# CONEXIONES
+# CONEXIÓN RAILWAY
 # =========================
 def get_railway_connection():
     try:
-        conn = mysql.connector.connect(
+        return mysql.connector.connect(
             host=RAILWAY_CONFIG["host"],
             user=RAILWAY_CONFIG["user"],
             password=RAILWAY_CONFIG["password"],
@@ -816,195 +593,119 @@ def get_railway_connection():
             port=int(RAILWAY_CONFIG["port"]),
             connection_timeout=CONNECTION_CONFIG["timeout"]
         )
-        logger.info("Conexión RAILWAY establecida")
-        return conn
     except mysql.connector.Error as e:
-        logger.warning(f"RAILWAY no disponible: {e}")
+        print(f"⚠️ RAILWAY no disponible: {e}")
         return None
 
 
+# =========================
+# CONEXIÓN LOCAL
+# =========================
 def get_local_connection():
     try:
-        conn = mysql.connector.connect(
+        return mysql.connector.connect(
             host=LOCAL_CONFIG["host"],
             user=LOCAL_CONFIG["user"],
             password=LOCAL_CONFIG["password"],
             database=LOCAL_CONFIG["database"],
             connection_timeout=CONNECTION_CONFIG["timeout"]
         )
-        logger.info("Conexión LOCAL establecida")
-        return conn
     except mysql.connector.Error as e:
-        logger.warning(f"LOCAL no disponible: {e}")
+        print(f"⚠️ LOCAL no disponible: {e}")
         return None
 
 
 # =========================
-# OBTENER TODOS LOS REGISTROS
+# OBTENER DATOS
 # =========================
-def fetch_all_records(conn, table, db_name):
+def fetch_data(conn, table):
     validar_tabla(table)
     cursor = conn.cursor()
     try:
-        cursor.execute(
-            f"SELECT fecha, NumUno, NumDos, NumTre, NumCua, NumCin, NumSei FROM {table}"
-        )
-        rows = cursor.fetchall()
-        logger.info(f"[{db_name}] {len(rows)} registros obtenidos de {table}")
-        return rows
+        cursor.execute(f"SELECT fecha, NumUno, NumDos, NumTre, NumCua, NumCin, NumSei FROM {table}")
+        data = set(cursor.fetchall())
+        return data
     except Exception as e:
-        logger.error(f"[{db_name}] Error al obtener datos de {table}: {e}")
-        return []
+        print(f"❌ Error al obtener datos de {table}: {e}")
+        return set()
     finally:
         cursor.close()
 
 
 # =========================
-# SINCRONIZAR RAILWAY → LOCAL
+# INSERTAR EN LOCAL
 # =========================
-def sync_table_to_local(table_name, railway_conn, local_conn):
-    validar_tabla(table_name)
-    logger.info(f"[Sync] {table_name} — Railway → LOCAL")
+def insert_missing(conn, table, missing):
+    validar_tabla(table)
+    cursor = conn.cursor()
 
-    railway_data = set(fetch_all_records(railway_conn, table_name, "RAILWAY"))
-    local_data = set(fetch_all_records(local_conn, table_name, "LOCAL"))
-
-    missing = railway_data - local_data
-
-    logger.info(f"[Sync] {table_name} — Railway: {len(railway_data)}, LOCAL: {len(local_data)}, faltantes: {len(missing)}")
-
-    if not missing:
-        logger.info(f"[Sync] {table_name} — ✅ Ya sincronizados")
-        return
-
-    cursor = local_conn.cursor()
     insert_sql = f"""
-        INSERT IGNORE INTO {table_name}
+        INSERT IGNORE INTO {table}
         (fecha, NumUno, NumDos, NumTre, NumCua, NumCin, NumSei)
         VALUES (%s,%s,%s,%s,%s,%s,%s)
     """
 
-    try:
-        cursor.executemany(insert_sql, list(missing))
-        local_conn.commit()
-        logger.info(f"[Sync] {table_name} — ✅ Insertados en LOCAL: {cursor.rowcount}")
-    except Exception as e:
-        local_conn.rollback()
-        logger.error(f"[Sync] {table_name} — Error al insertar en LOCAL: {e}")
-    finally:
-        cursor.close()
-
-
-# =========================
-# POBLAR SQLITE
-# =========================
-def populate_sqlite(table, data, source_name):
-    validar_tabla(table)
-
-    if not data:
-        logger.warning(f"[SQLite] Sin datos para poblar {table} desde {source_name}")
-        return
-
-    conn = get_sqlite_connection()
-    cursor = conn.cursor()
+    insertados = 0
 
     try:
-        cursor.execute(f"DELETE FROM {table}")
-        logger.info(f"[SQLite] {table} limpiada ({cursor.rowcount} eliminados)")
-
-        cursor.executemany(
-            f"""
-            INSERT OR IGNORE INTO {table}
-            (fecha, NumUno, NumDos, NumTre, NumCua, NumCin, NumSei)
-            VALUES (?,?,?,?,?,?,?)
-            """,
-            data
-        )
+        for registro in missing:
+            cursor.execute(insert_sql, registro)
+            if cursor.rowcount == 1:
+                insertados += 1
 
         conn.commit()
-        logger.info(f"[SQLite] {table} poblada desde {source_name} → {cursor.rowcount} insertados")
+        return insertados
 
     except Exception as e:
         conn.rollback()
-        logger.error(f"[SQLite] Error al poblar {table}: {e}")
+        print(f"❌ Error, rollback ejecutado: {e}")
+        return 0
 
     finally:
         cursor.close()
-        conn.close()
 
 
 # =========================
-# FLUJO SQLITE: LOCAL → RAILWAY → sin conexión (no aplica aquí)
+# SINCRONIZAR TABLA
 # =========================
-def setup_sqlite_for_table(table_name, local_conn, railway_conn):
+def sync_table(table_name):
     validar_tabla(table_name)
-    logger.info(f"[SQLite Setup] {table_name} — iniciando")
-
-    # LOCAL primero
-    if local_conn:
-        data = fetch_all_records(local_conn, table_name, "LOCAL")
-        if data:
-            populate_sqlite(table_name, data, "LOCAL")
-            return
-        logger.warning(f"[SQLite Setup] {table_name} — LOCAL sin datos, intentando RAILWAY")
-
-    # Fallback RAILWAY
-    if railway_conn:
-        data = fetch_all_records(railway_conn, table_name, "RAILWAY")
-        if data:
-            populate_sqlite(table_name, data, "RAILWAY")
-            return
-        logger.warning(f"[SQLite Setup] {table_name} — RAILWAY sin datos")
-
-    logger.error(f"[SQLite Setup] {table_name} — ❌ Sin datos disponibles para poblar SQLite")
-
-
-# =========================
-# MAIN
-# =========================
-def main():
-    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-    log_dir = os.path.join(base_dir, "logs")
-    os.makedirs(log_dir, exist_ok=True)
-
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
-        handlers=[
-            logging.StreamHandler(),
-            logging.FileHandler(os.path.join(log_dir, "migrate.log"), encoding="utf-8")
-        ]
-    )
-
-    tables = ["TblTinka", "TblKabala"]
+    print(f"\n📦 Verificando tabla: {table_name}")
 
     railway_conn = get_railway_connection()
+
+    if not railway_conn:
+        print(f"❌ RAILWAY no disponible, no se puede sincronizar {table_name}")
+        return
+
     local_conn = get_local_connection()
 
-    if not railway_conn and not local_conn:
-        logger.error("Sin conexión a RAILWAY ni a LOCAL — operación cancelada")
+    if not local_conn:
+        print(f"⚠️ LOCAL no disponible, se omite {table_name}")
+        railway_conn.close()
         return
 
     try:
-        # PASO 1 — Sincronizar Railway → LOCAL
-        if railway_conn and local_conn:
-            logger.info("=" * 60)
-            logger.info("PASO 1 — Sincronizando Railway → LOCAL")
-            logger.info("=" * 60)
-            for table in tables:
-                sync_table_to_local(table, railway_conn, local_conn)
-        elif not local_conn:
-            logger.warning("LOCAL no disponible — sincronización omitida")
-        elif not railway_conn:
-            logger.warning("RAILWAY no disponible — sincronización omitida")
+        railway_data = fetch_data(railway_conn, table_name)
+        local_data = fetch_data(local_conn, table_name)
 
-        # PASO 2 — Poblar SQLite
-        logger.info("=" * 60)
-        logger.info("PASO 2 — Poblando SQLite")
-        logger.info("=" * 60)
-        for table in tables:
-            setup_sqlite_for_table(table, local_conn, railway_conn)
+        print(f"➡️ Registros en Railway: {len(railway_data)}")
+        print(f"➡️ Registros en LOCAL:   {len(local_data)}")
+
+        missing = railway_data - local_data
+
+        if not missing:
+            print(f"✅ Ya sincronizados, no hay nada que insertar")
+            return
+
+        print(f"⚠️ Faltan en LOCAL: {len(missing)} registros, insertando...")
+
+        insertados = insert_missing(local_conn, table_name, missing)
+
+        print(f"✅ Insertados: {insertados}")
+
+    except Exception as e:
+        print(f"❌ Error en tabla {table_name}: {e}")
 
     finally:
         if local_conn:
@@ -1013,245 +714,17 @@ def main():
             railway_conn.close()
 
 
-if __name__ == "__main__":
-    main()
-
-================================================================================
-src\migration\migrate_railway_to_bkp_local.py
-================================================================================
-
-import logging
-import os
-
-import mysql.connector
-
-from src.config.config_loader import load_config, load_local_config, load_connection_config
-from src.database.sqlite_connection import get_sqlite_connection
-
-TABLAS_PERMITIDAS = {"TblTinka", "TblKabala"}
-CONNECTION_CONFIG = load_connection_config()
-RAILWAY_CONFIG = load_config()
-LOCAL_CONFIG = load_local_config()
-
-logger = logging.getLogger("migrate")
-
-
-# =========================
-# VALIDACIÓN
-# =========================
-def validar_tabla(table_name):
-    if table_name not in TABLAS_PERMITIDAS:
-        raise ValueError(f"❌ Tabla no permitida: {table_name}")
-
-
-# =========================
-# CONEXIONES
-# =========================
-def get_railway_connection():
-    try:
-        conn = mysql.connector.connect(
-            host=RAILWAY_CONFIG["host"],
-            user=RAILWAY_CONFIG["user"],
-            password=RAILWAY_CONFIG["password"],
-            database=RAILWAY_CONFIG["database"],
-            port=int(RAILWAY_CONFIG["port"]),
-            connection_timeout=CONNECTION_CONFIG["timeout"]
-        )
-        logger.info("Conexión RAILWAY establecida")
-        return conn
-    except mysql.connector.Error as e:
-        logger.warning(f"RAILWAY no disponible: {e}")
-        return None
-
-
-def get_local_connection():
-    try:
-        conn = mysql.connector.connect(
-            host=LOCAL_CONFIG["host"],
-            user=LOCAL_CONFIG["user"],
-            password=LOCAL_CONFIG["password"],
-            database=LOCAL_CONFIG["database"],
-            connection_timeout=CONNECTION_CONFIG["timeout"]
-        )
-        logger.info("Conexión LOCAL establecida")
-        return conn
-    except mysql.connector.Error as e:
-        logger.warning(f"LOCAL no disponible: {e}")
-        return None
-
-
-# =========================
-# OBTENER TODOS LOS REGISTROS
-# =========================
-def fetch_all_records(conn, table, db_name):
-    validar_tabla(table)
-    cursor = conn.cursor()
-    try:
-        cursor.execute(
-            f"SELECT fecha, NumUno, NumDos, NumTre, NumCua, NumCin, NumSei FROM {table}"
-        )
-        rows = cursor.fetchall()
-        logger.info(f"[{db_name}] {len(rows)} registros obtenidos de {table}")
-        return rows
-    except Exception as e:
-        logger.error(f"[{db_name}] Error al obtener datos de {table}: {e}")
-        return []
-    finally:
-        cursor.close()
-
-
-# =========================
-# SINCRONIZAR RAILWAY → LOCAL
-# =========================
-def sync_table_to_local(table_name, railway_conn, local_conn):
-    validar_tabla(table_name)
-    logger.info(f"[Sync] {table_name} — Railway → LOCAL")
-
-    railway_data = set(fetch_all_records(railway_conn, table_name, "RAILWAY"))
-    local_data = set(fetch_all_records(local_conn, table_name, "LOCAL"))
-
-    missing = railway_data - local_data
-
-    logger.info(f"[Sync] {table_name} — Railway: {len(railway_data)}, LOCAL: {len(local_data)}, faltantes: {len(missing)}")
-
-    if not missing:
-        logger.info(f"[Sync] {table_name} — ✅ Ya sincronizados")
-        return
-
-    cursor = local_conn.cursor()
-    insert_sql = f"""
-        INSERT IGNORE INTO {table_name}
-        (fecha, NumUno, NumDos, NumTre, NumCua, NumCin, NumSei)
-        VALUES (%s,%s,%s,%s,%s,%s,%s)
-    """
-
-    try:
-        cursor.executemany(insert_sql, list(missing))
-        local_conn.commit()
-        logger.info(f"[Sync] {table_name} — ✅ Insertados en LOCAL: {cursor.rowcount}")
-    except Exception as e:
-        local_conn.rollback()
-        logger.error(f"[Sync] {table_name} — Error al insertar en LOCAL: {e}")
-    finally:
-        cursor.close()
-
-
-# =========================
-# POBLAR SQLITE
-# =========================
-def populate_sqlite(table, data, source_name):
-    validar_tabla(table)
-
-    if not data:
-        logger.warning(f"[SQLite] Sin datos para poblar {table} desde {source_name}")
-        return
-
-    conn = get_sqlite_connection()
-    cursor = conn.cursor()
-
-    try:
-        cursor.execute(f"DELETE FROM {table}")
-        logger.info(f"[SQLite] {table} limpiada ({cursor.rowcount} eliminados)")
-
-        cursor.executemany(
-            f"""
-            INSERT OR IGNORE INTO {table}
-            (fecha, NumUno, NumDos, NumTre, NumCua, NumCin, NumSei)
-            VALUES (?,?,?,?,?,?,?)
-            """,
-            data
-        )
-
-        conn.commit()
-        logger.info(f"[SQLite] {table} poblada desde {source_name} → {cursor.rowcount} insertados")
-
-    except Exception as e:
-        conn.rollback()
-        logger.error(f"[SQLite] Error al poblar {table}: {e}")
-
-    finally:
-        cursor.close()
-        conn.close()
-
-
-# =========================
-# FLUJO SQLITE: LOCAL → RAILWAY → sin conexión (no aplica aquí)
-# =========================
-def setup_sqlite_for_table(table_name, local_conn, railway_conn):
-    validar_tabla(table_name)
-    logger.info(f"[SQLite Setup] {table_name} — iniciando")
-
-    # LOCAL primero
-    if local_conn:
-        data = fetch_all_records(local_conn, table_name, "LOCAL")
-        if data:
-            populate_sqlite(table_name, data, "LOCAL")
-            return
-        logger.warning(f"[SQLite Setup] {table_name} — LOCAL sin datos, intentando RAILWAY")
-
-    # Fallback RAILWAY
-    if railway_conn:
-        data = fetch_all_records(railway_conn, table_name, "RAILWAY")
-        if data:
-            populate_sqlite(table_name, data, "RAILWAY")
-            return
-        logger.warning(f"[SQLite Setup] {table_name} — RAILWAY sin datos")
-
-    logger.error(f"[SQLite Setup] {table_name} — ❌ Sin datos disponibles para poblar SQLite")
-
-
 # =========================
 # MAIN
 # =========================
 def main():
-    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    tables = [
+        "TblTinka",
+        "TblKabala"
+    ]
 
-    log_dir = os.path.join(base_dir, "logs")
-    os.makedirs(log_dir, exist_ok=True)
-
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
-        handlers=[
-            logging.StreamHandler(),
-            logging.FileHandler(os.path.join(log_dir, "migrate.log"), encoding="utf-8")
-        ]
-    )
-
-    tables = ["TblTinka", "TblKabala"]
-
-    railway_conn = get_railway_connection()
-    local_conn = get_local_connection()
-
-    if not railway_conn and not local_conn:
-        logger.error("Sin conexión a RAILWAY ni a LOCAL — operación cancelada")
-        return
-
-    try:
-        # PASO 1 — Sincronizar Railway → LOCAL
-        if railway_conn and local_conn:
-            logger.info("=" * 60)
-            logger.info("PASO 1 — Sincronizando Railway → LOCAL")
-            logger.info("=" * 60)
-            for table in tables:
-                sync_table_to_local(table, railway_conn, local_conn)
-        elif not local_conn:
-            logger.warning("LOCAL no disponible — sincronización omitida")
-        elif not railway_conn:
-            logger.warning("RAILWAY no disponible — sincronización omitida")
-
-        # PASO 2 — Poblar SQLite
-        logger.info("=" * 60)
-        logger.info("PASO 2 — Poblando SQLite")
-        logger.info("=" * 60)
-        for table in tables:
-            setup_sqlite_for_table(table, local_conn, railway_conn)
-
-    finally:
-        if local_conn:
-            local_conn.close()
-        if railway_conn:
-            railway_conn.close()
+    for table in tables:
+        sync_table(table)
 
 
 if __name__ == "__main__":
@@ -1347,91 +820,6 @@ def get_last_draws(table_name, limit):
         conn.close()
 
 ================================================================================
-src\repository\sqlite_game_repository.py
-================================================================================
-
-import logging
-
-from src.database.sqlite_connection import get_sqlite_connection
-from src.utils.logger import APP_LOGGER_NAME
-
-logger = logging.getLogger(APP_LOGGER_NAME)
-
-TABLAS_PERMITIDAS = {"TblTinka", "TblKabala"}
-
-
-def validar_tabla(table_name):
-    if table_name not in TABLAS_PERMITIDAS:
-        raise ValueError(f"❌ Tabla no permitida: {table_name}")
-
-
-def get_winning_combinations(table_name):
-    """
-    Retorna dict { tuple(nums): fecha } con todas las combinaciones ganadoras.
-    Retorna {} si falla o no hay datos.
-    """
-    validar_tabla(table_name)
-
-    conn = get_sqlite_connection()
-    cursor = conn.cursor()
-
-    try:
-        cursor.execute(
-            f"SELECT fecha, NumUno, NumDos, NumTre, NumCua, NumCin, NumSei FROM {table_name}"
-        )
-
-        result = {
-            tuple(sorted(row[1:])): row[0]
-            for row in cursor.fetchall()
-        }
-
-        logger.info(f"[SQLite] {table_name} — {len(result)} combinaciones ganadoras cargadas")
-        return result
-
-    except Exception as e:
-        logger.error(f"[SQLite] Error al obtener combinaciones de {table_name}: {e}")
-        return {}
-
-    finally:
-        cursor.close()
-        conn.close()
-
-
-def get_last_draws(table_name, limit):
-    """
-    Retorna lista de tuplas con los últimos `limit` sorteos ordenados por fecha DESC.
-    Retorna [] si falla o no hay datos.
-    """
-    validar_tabla(table_name)
-
-    conn = get_sqlite_connection()
-    cursor = conn.cursor()
-
-    try:
-        cursor.execute(
-            f"""
-            SELECT NumUno, NumDos, NumTre, NumCua, NumCin, NumSei
-            FROM {table_name}
-            ORDER BY fecha DESC
-            LIMIT ?
-            """,
-            (limit,)
-        )
-
-        result = [tuple(row) for row in cursor.fetchall()]
-
-        logger.info(f"[SQLite] {table_name} — {len(result)} últimos sorteos cargados")
-        return result
-
-    except Exception as e:
-        logger.error(f"[SQLite] Error al obtener últimos sorteos de {table_name}: {e}")
-        return []
-
-    finally:
-        cursor.close()
-        conn.close()
-
-================================================================================
 src\run_kabala.py
 ================================================================================
 
@@ -1492,8 +880,7 @@ import os
 import random
 
 from src.config.game_config import TINKA_CONFIG, KABALA_CONFIG
-from src.repository.game_repository import (get_last_draws as mysql_get_last_draws,get_winning_combinations as mysql_get_winning_combinations)
-from src.repository import sqlite_game_repository
+from src.repository.game_repository import get_last_draws, get_winning_combinations
 from src.services.validator import validate_combination
 from src.utils.logger import APP_LOGGER_NAME
 
@@ -1531,76 +918,16 @@ def get_game_config(table_name):
     raise ValueError(f"Configuración no encontrada para {table_name}")
 
 
-def _load_data(table_name, limit):
-    """
-    Carga historial y combinaciones ganadoras.
-    Intenta SQLite primero; si está vacío o falla, cae a MySQL.
-
-    Retorna: (history, winning_combinations, source)
-    """
-
-    # ─── Intentar SQLite ──────────────────────────────────────────────────────
-    try:
-        history = sqlite_game_repository.get_last_draws(table_name, limit)
-        winning_combinations = sqlite_game_repository.get_winning_combinations(table_name)
-
-        if history and winning_combinations:
-            logger.info(
-                f"[{table_name}] Datos cargados desde SQLite — "
-                f"historial: {len(history)}, ganadoras: {len(winning_combinations)}"
-            )
-            return history, winning_combinations, "SQLite"
-
-        logger.warning(
-            f"[{table_name}] SQLite vacío o incompleto "
-            f"(historial={len(history)}, ganadoras={len(winning_combinations)}) — "
-            f"cayendo a MySQL"
-        )
-
-    except Exception as e:
-        logger.error(f"[{table_name}] Error al leer SQLite: {e} — cayendo a MySQL")
-
-    # ─── Fallback MySQL ───────────────────────────────────────────────────────
-    try:
-        history = mysql_get_last_draws(table_name, limit)
-        winning_combinations = mysql_get_winning_combinations(table_name)
-
-        if history or winning_combinations:
-            logger.info(
-                f"[{table_name}] Datos cargados desde MySQL — "
-                f"historial: {len(history)}, ganadoras: {len(winning_combinations)}"
-            )
-            return history, winning_combinations, "MySQL"
-
-        logger.error(f"[{table_name}] MySQL también vacío o sin datos")
-
-    except Exception as e:
-        logger.error(f"[{table_name}] Error al leer MySQL: {e}")
-
-    # ─── Sin datos ────────────────────────────────────────────────────────────
-    logger.error(f"[{table_name}] Sin datos disponibles en ninguna fuente")
-    return [], {}, "ninguna"
-
-
 def generate_numbers(table_name):
     """
     Genera combinaciones válidas según reglas del juego.
-    Usa SQLite como fuente primaria; MySQL como fallback.
     """
     game_config = get_game_config(table_name)
 
     logger.info(f"Iniciando generación para {table_name}")
 
-    history, winning_combinations, source = _load_data(
-        table_name,
-        game_config["last_draws_limit"]
-    )
-
-    if source == "ninguna":
-        logger.error(f"[{table_name}] No se puede generar sin datos históricos")
-        return None
-
-    logger.info(f"[{table_name}] Fuente de datos: {source}")
+    history = get_last_draws(table_name, game_config["last_draws_limit"])
+    winning_combinations = get_winning_combinations(table_name)
 
     attempts = 0
 
@@ -1686,71 +1013,46 @@ def calculate_difference_pattern(combination, history):
 
 
 # =========================
-# SIMILITUD JACCARD
-# =========================
-def jaccard_similarity(set_a, set_b):
-    """
-    Calcula similitud Jaccard entre dos conjuntos.
-    Resultado entre 0.0 (nada en común) y 1.0 (idénticos).
-    """
-    intersection = len(set_a & set_b)
-    union = len(set_a | set_b)
-
-    if union == 0:
-        return 0.0
-
-    return intersection / union
-
-
-# =========================
 # OBTENER COMBINACIÓN MÁS CERCANA
 # =========================
 def get_closest_combination(combination, history, winning_combinations):
     """
     Busca la combinación histórica más cercana usando
-    distancia euclidiana y similitud Jaccard.
+    distancia euclidiana.
     """
+    if not history:
+        return None, "sin historial", float('inf')
+
     min_dist = float('inf')
-    max_jaccard = 0.0
-    closest_euclidean = None
-    closest_jaccard = None
-    combo_set = set(combination)
+    closest = None
 
     for hist in history:
         dist = distance.euclidean(combination, hist)
         if dist < min_dist:
             min_dist = dist
-            closest_euclidean = hist
+            closest = hist
 
-        jac = jaccard_similarity(combo_set, set(hist))
-        if jac > max_jaccard:
-            max_jaccard = jac
-            closest_jaccard = hist
+    fecha = winning_combinations.get(tuple(sorted(closest)), "fecha desconocida")
 
-    fecha_euclidean = (
-        winning_combinations.get(tuple(sorted(closest_euclidean)), "fecha desconocida")
-        if closest_euclidean is not None else "fecha desconocida"
-    )
-
-    fecha_jaccard = (
-        winning_combinations.get(tuple(sorted(closest_jaccard)), "fecha desconocida")
-        if closest_jaccard is not None else "fecha desconocida"
-    )
-
-    return closest_euclidean, fecha_euclidean, min_dist, closest_jaccard, fecha_jaccard, max_jaccard
+    return closest, fecha, min_dist
 
 
 # =========================
 # VALIDAR COMBINACIÓN
 # =========================
-def validate_combination(combination, history, winning_combinations, game_config):
+def validate_combination(
+        combination,
+        history,
+        winning_combinations,
+        game_config
+):
     """
-    Valida una combinación según las reglas definidas en game_config.py
+    Valida una combinación según las reglas definidas
+    en game_config.py
     """
     min_number = game_config["min_number"]
     max_number = game_config["max_number"]
     min_distance = game_config["min_distance"]
-    max_jaccard_similarity = game_config["max_jaccard_similarity"]
     max_consecutive = game_config["max_consecutive"]
     min_range = game_config["min_range"]
     max_even = game_config["max_even"]
@@ -1767,8 +1069,11 @@ def validate_combination(combination, history, winning_combinations, game_config
     # REPETICIONES HISTÓRICAS
     # =========================
     is_valid, reason = validate_repetitions(
-        combination, winning_combinations, max_shared_history_numbers
+        combination,
+        winning_combinations,
+        max_shared_history_numbers
     )
+
     if not is_valid:
         return False, reason
 
@@ -1779,6 +1084,7 @@ def validate_combination(combination, history, winning_combinations, game_config
         1 for i in range(len(combination) - 1)
         if combination[i] + 1 == combination[i + 1]
     )
+
     if consecutivos >= max_consecutive + 1:
         return False, "Demasiados consecutivos"
 
@@ -1792,8 +1098,10 @@ def validate_combination(combination, history, winning_combinations, game_config
     # MUY BAJOS / MUY ALTOS
     # =========================
     midpoint = (min_number + max_number) // 2
+
     if combination[-1] <= midpoint - midpoint_spread:
         return False, "Muy menores"
+
     if combination[0] >= midpoint + midpoint_spread:
         return False, "Muy mayores"
 
@@ -1802,8 +1110,10 @@ def validate_combination(combination, history, winning_combinations, game_config
     # =========================
     pares = sum(1 for n in combination if n % 2 == 0)
     impares = numbers_count - pares
+
     if pares > max_even:
         return False, "Muchos números pares"
+
     if impares > max_odd:
         return False, "Muchos números impares"
 
@@ -1833,33 +1143,27 @@ def validate_combination(combination, history, winning_combinations, game_config
         for i in range(len(combination) - 1)
         if combination[i] + 1 == combination[i + 1]
     ]
+
     if block_triple_double_sequences and len(pares_consecutivos) >= 3:
         return False, "Dobles por doquier"
+
     if block_double_sequences and len(pares_consecutivos) >= 2:
         return False, "Dobles detectados"
 
     # =========================
-    # DISTANCIA Y JACCARD
+    # DISTANCIA
     # =========================
-    if history:
-        closest_euclidean, fecha_euclidean, distancia, \
-            closest_jaccard, fecha_jaccard, similitud_jaccard = get_closest_combination(
-            combination, history, winning_combinations
+    closest, fecha, distancia = get_closest_combination(
+        combination,
+        history,
+        winning_combinations
+    )
+
+    if distancia < min_distance:
+        return False, (
+            f"Demasiado similar a {closest} del {fecha} "
+            f"(distancia={round(distancia, 2)})"
         )
-
-        if distancia < min_distance:
-            return False, (
-                f"Demasiado similar (euclidiana) a {closest_euclidean} "
-                f"del {fecha_euclidean} "
-                f"(distancia={round(distancia, 2)})"
-            )
-
-        if similitud_jaccard >= max_jaccard_similarity:
-            return False, (
-                f"Demasiado similar (Jaccard) a {closest_jaccard} "
-                f"del {fecha_jaccard} "
-                f"(similitud={round(similitud_jaccard, 2)})"
-            )
 
     # =========================
     # PATRÓN
@@ -1880,6 +1184,27 @@ from src.config.config_loader import load_config
 def main():
     config = load_config()
     print(config)
+
+
+if __name__ == "__main__":
+    main()
+
+
+================================================================================
+src\test_db.py
+================================================================================
+
+from src.database.connection import get_connection
+
+
+def main():
+    conn = get_connection("test_db")
+
+    if conn:
+        print("Conexión exitosa")
+        conn.close()
+    else:
+        print("Error de conexión")
 
 
 if __name__ == "__main__":
@@ -1919,50 +1244,30 @@ if __name__ == "__main__":
     main()
 
 ================================================================================
-src\test_sqlite.py
+src\test_repository.py
 ================================================================================
 
-from src.database.sqlite_connection import get_sqlite_connection
+from src.config.game_config import TINKA_CONFIG, KABALA_CONFIG
+from src.repository.game_repository import get_winning_combinations, get_last_draws
 
 
 def main():
-<<<<<<< HEAD
-    for tabla in ["TblTinka", "TblKabala"]:
-        print(f"\n=== {tabla} ===")
-        ganadoras = get_winning_combinations(tabla)
-        historial = get_last_draws(tabla, 10)
+    print("=== TINKA ===")
+    ganadoras_tinka = get_winning_combinations("TblTinka")
+    historial_tinka = get_last_draws("TblTinka", TINKA_CONFIG["last_draws_limit"])
+    print("Total combinaciones:", len(ganadoras_tinka))
+    print("Últimos sorteos:", historial_tinka)
 
-        print("Total combinaciones:", len(ganadoras))
-        print("Últimos sorteos:", historial)
-=======
-    conn = get_sqlite_connection()
-
-    print("✅ SQLite conectado")
-
-    conn.close()
->>>>>>> e0674c4064eb2d470727992f7c368fa1b8783d45
+    print("\n=== KÁBALA ===")
+    ganadoras_kabala = get_winning_combinations("TblKabala")
+    historial_kabala = get_last_draws("TblKabala", KABALA_CONFIG["last_draws_limit"])
+    print("Total combinaciones:", len(ganadoras_kabala))
+    print("Últimos sorteos:", historial_kabala)
 
 
 if __name__ == "__main__":
     main()
 
-================================================================================
-src\test_sqlite.py
-================================================================================
-
-from src.database.sqlite_connection import get_sqlite_connection
-
-
-def main():
-    conn = get_sqlite_connection()
-
-    print("✅ SQLite conectado")
-
-    conn.close()
-
-
-if __name__ == "__main__":
-    main()
 
 ================================================================================
 src\test_validator.py
@@ -2184,21 +1489,6 @@ def setup_logger(game_name):
     # Handler archivo
     file_handler = logging.FileHandler(log_file, encoding="utf-8")
     file_handler.setFormatter(formatter)
-<<<<<<< HEAD
-
-    # Handler consola
-    console_handler = logging.StreamHandler()
-    console_handler.setFormatter(formatter)
-
-    logger.addHandler(file_handler)
-    logger.addHandler(console_handler)
-
-    # Evitar propagación al root logger
-    logger.propagate = False
-
-    return logger
-=======
->>>>>>> e0674c4064eb2d470727992f7c368fa1b8783d45
 
     # Handler consola
     console_handler = logging.StreamHandler()
