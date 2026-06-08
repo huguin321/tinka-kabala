@@ -1,126 +1,243 @@
-# 🎲 Tinka & Kábala - Generador y Analizador de Combinaciones
+# 🎲 Tinka & Kábala - Generador Inteligente de Combinaciones
 
-Sistema desarrollado en Python para la generación, validación, análisis y almacenamiento de combinaciones numéricas tipo lotería (Tinka y Kábala), con soporte de base de datos en la nube (Railway) y MySQL local.
+Sistema desarrollado en Python para la generación, validación, análisis y almacenamiento de combinaciones numéricas para los juegos Tinka y Kábala.
 
----
-
-## 📌 Características principales
-
-- Generación inteligente de combinaciones aleatorias
-- Validación avanzada contra historial de sorteos
-- Reglas estadísticas (pares, impares, entropía, patrones, distancias)
-- Detección de combinaciones repetidas o similares
-- Persistencia en MySQL (local y Railway)
-- Migración de datos entre entornos
-- Carga masiva desde archivos `.txt`
-- Logging detallado del sistema
-- Soporte para dos juegos:
-  - 🎯 Tinka (1 combinación por sorteo)
-  - 🎯 Kábala (2 combinaciones por sorteo)
+La arquitectura actual está orientada a funcionamiento local mediante SQLite, permitiendo operar incluso sin conexión a Internet y sirviendo como base para una futura aplicación móvil.
 
 ---
 
-## 🏗️ Arquitectura del proyecto
+# 📌 Características principales
 
+* Generación inteligente de combinaciones numéricas
+* Validación avanzada contra historial de sorteos
+* Reglas estadísticas y filtros de calidad
+* Detección de combinaciones históricas repetidas
+* Sincronización de datos desde Railway
+* Almacenamiento local en SQLite
+* Operación offline
+* Carga masiva desde archivos TXT
+* Logging detallado
+* Soporte para:
+
+  * 🎯 Tinka
+  * 🎯 Kábala
+
+---
+
+# 🏗️ Arquitectura
+
+```text
+TXT
+ │
+ ▼
+Railway
+ │
+ ▼
+SQLite
+ │
+ ▼
+Generator
+ │
+ ▼
+Validator
+ │
+ ▼
+Output
+```
+
+La generación utiliza SQLite como fuente principal de datos.
+
+Si SQLite no contiene información válida, el sistema puede recurrir a MySQL como mecanismo de respaldo.
+
+---
+
+# 📂 Estructura del proyecto
+
+```text
 src/
 │
-├── config/            # Configuración del sistema
-├── database/          # Conexión a MySQL
-├── migration/         # Migración y carga de datos
-├── repository/        # Consultas a base de datos
-├── services/          # Lógica de generación y validación
-├── utils/             # Logger y utilidades
-├── run_tinka.py       # Ejecución Tinka
-├── run_kabala.py      # Ejecución Kábala
+├── config/
+│   ├── config_loader.py
+│   └── game_config.py
+│
+├── database/
+│   ├── connection.py
+│   ├── sqlite_connection.py
+│   └── create_sqlite_tables.py
+│
+├── migration/
+│   ├── load_txt_dual_clean_log.py
+│   └── migrate_railway_to_bkp_local.py
+│
+├── repository/
+│   ├── game_repository.py
+│   └── sqlite_game_repository.py
+│
+├── services/
+│   ├── generator.py
+│   └── validator.py
+│
+├── utils/
+│   └── logger.py
+│
+├── run_tinka.py
+├── run_kabala.py
+└── check_duplicates.py
+```
 
 ---
 
-## ⚙️ Tecnologías utilizadas
+# ⚙️ Tecnologías utilizadas
 
-- Python 3.x
-- MySQL
-- mysql-connector-python
-- SciPy (distancias y análisis estadístico)
-- Logging estándar de Python
-
----
-
-## 📂 Formato de datos (TXT)
-
-Los archivos deben tener el siguiente formato:
-
-22/04/2026  22 01 40 52 23 25
-19/04/2026  31 36 50 17 32 28
-
-### Reglas de procesamiento:
-- Orden cronológico automático
-- Orden interno ascendente por combinación
-- Eliminación de ceros a la izquierda
-- Detección de duplicados
+* Python 3.x
+* SQLite
+* MySQL
+* mysql-connector-python
+* Logging estándar de Python
 
 ---
 
-## 🚀 Ejecución del proyecto
+# 🗄️ Almacenamiento de datos
+
+## Railway
+
+Base de datos principal y fuente oficial de información.
+
+## SQLite
+
+Base local utilizada por el generador.
+
+Ventajas:
+
+* Mayor velocidad
+* Menor dependencia de Internet
+* Operación offline
+* Compatible con futuras APK Android
+
+## MySQL Local
+
+Uso opcional como respaldo o entorno de desarrollo.
+
+---
+
+# 🔄 Flujo de sincronización
+
+## 1. Carga de archivos TXT
+
+```bash
+python -m src.migration.load_txt_dual_clean_log
+```
+
+Procesa archivos históricos y los inserta en Railway.
+
+---
+
+## 2. Sincronización hacia SQLite
+
+```bash
+python -m src.migration.migrate_railway_to_bkp_local
+```
+
+Obtiene la información desde Railway y actualiza SQLite.
+
+---
+
+## 3. Generación de combinaciones
 
 ### Tinka
-python src/run_tinka.py
 
-### Kabala
-python src/run_kabala.py
+```bash
+python -m src.run_tinka
+```
 
+### Kábala
 
-### Migración de base de datos
-python src/migration/migrate_local_to_railway.py
+```bash
+python -m src.run_kabala
+```
 
-### Carga desde archivos TXT (Carga dual Local + Railway)
-python src/migration/load_txt_dual_clean_log.py
+---
 
+# 📂 Formato TXT
 
-## 🧠 Reglas del sistema
+Ejemplo:
 
-El generador evita combinaciones que:
+```text
+22/04/2026  22 01 40 52 23 25
+19/04/2026  31 36 50 17 32 28
+```
 
-Tengan demasiados números repetidos con históricos
-Sean demasiado similares a sorteos anteriores
-Tengan baja entropía
-Presenten patrones repetitivos
-Estén demasiado agrupadas
-Tengan exceso de pares o impares
-Sean estadísticamente similares a combinaciones recientes
+Durante la importación:
 
-## 🗄️ Base de datos
+* Conversión automática de fechas
+* Ordenamiento de números
+* Eliminación de ceros a la izquierda
+* Validación de registros
+* Detección de duplicados
 
-Tablas principales:
+---
 
-TblTinka
-TblKabala
+# 🧠 Reglas del generador
 
-Campos:
+El sistema evita combinaciones que:
 
-fecha, NumUno, NumDos, NumTre, NumCua, NumCin, NumSei
+* Repitan combinaciones históricas
+* Sean demasiado similares a sorteos recientes
+* Presenten patrones repetitivos
+* Contengan exceso de números pares o impares
+* Tengan distribuciones poco equilibradas
+* Incumplan reglas estadísticas definidas para cada juego
 
+---
 
-## 🌐 Entornos soportados
-🖥️ Local MySQL
-☁️ Railway MySQL (producción)
+# 🔍 Verificación de duplicados
 
-## 📊 Logs
+```bash
+python -m src.check_duplicates
+```
 
-Los logs se generan en:
+Permite identificar combinaciones históricas repetidas dentro de SQLite.
 
-/logs/tinka.log
-/logs/kabala.log
+---
 
-## 🔐 Seguridad
-Las credenciales de base de datos deben configurarse en config.ini
-No subir credenciales reales a GitHub
-Usar variables separadas para producción
+# 📊 Logs
 
-## 📌 Autor
+Los logs se almacenan en:
 
-Proyecto personal de Hugo Ramos M para análisis y generación de combinaciones numéricas.
+```text
+logs/
+```
 
-## ⚠️ Nota
+Incluyendo:
 
-Este sistema es de análisis estadístico y generación aleatoria.
-No garantiza predicción de resultados reales.
+* Sincronización
+* Migraciones
+* Generación
+* Validaciones
+* Errores
+
+---
+
+# 🔐 Configuración
+
+Las credenciales deben configurarse en:
+
+```text
+config.ini
+```
+
+No incluir credenciales reales en repositorios públicos.
+
+---
+
+# 🚀 Objetivo del proyecto
+
+La arquitectura actual está diseñada para evolucionar hacia una aplicación móvil Android donde SQLite actuará como almacenamiento local y Railway como fuente de sincronización de datos.
+
+---
+
+# ⚠️ Aviso
+
+Este sistema realiza análisis estadístico y generación de combinaciones numéricas.
+
+No predice resultados futuros ni garantiza premios.
