@@ -1,22 +1,22 @@
-# 🎲 Tinka & Kábala - Generador Inteligente de Combinaciones
+# 🎲 Tinka & Kábala — Generador Inteligente de Combinaciones
 
-Sistema desarrollado en Python para la generación, validación, análisis y almacenamiento de combinaciones numéricas para los juegos Tinka y Kábala.
+Sistema desarrollado en Python para la generación, validación, análisis estadístico y almacenamiento de combinaciones numéricas para los juegos **Tinka** y **Kábala**.
 
-La arquitectura actual está orientada a funcionamiento local mediante SQLite, permitiendo operar incluso sin conexión a Internet y sirviendo como base para una futura aplicación móvil.
+La arquitectura actual está diseñada para operar principalmente sobre **SQLite**, permitiendo generación local, funcionamiento offline y sincronización periódica con Railway. Este diseño servirá como base para una futura aplicación Android.
 
 ---
 
 # 📌 Características principales
 
 * Generación inteligente de combinaciones numéricas
-* Validación avanzada contra historial de sorteos
+* Validación avanzada contra historial completo de sorteos
 * Reglas estadísticas y filtros de calidad
 * Detección de combinaciones históricas repetidas
+* Operación offline mediante SQLite
 * Sincronización de datos desde Railway
-* Almacenamiento local en SQLite
-* Operación offline
+* Fallback automático a MySQL cuando sea necesario
 * Carga masiva desde archivos TXT
-* Logging detallado
+* Logging centralizado
 * Soporte para:
 
   * 🎯 Tinka
@@ -24,7 +24,7 @@ La arquitectura actual está orientada a funcionamiento local mediante SQLite, p
 
 ---
 
-# 🏗️ Arquitectura
+# 🏗️ Arquitectura General
 
 ```text
 TXT
@@ -45,82 +45,118 @@ Validator
 Output
 ```
 
-La generación utiliza SQLite como fuente principal de datos.
+### Flujo de generación
 
-Si SQLite no contiene información válida, el sistema puede recurrir a MySQL como mecanismo de respaldo.
+```text
+run_tinka.py / run_kabala.py
+            │
+            ▼
+      generator.py
+            │
+            ▼
+ sqlite_game_repository.py
+            │
+            ▼
+         SQLite
+```
+
+SQLite es la fuente primaria de datos.
+
+El generador no depende de Internet para funcionar.
 
 ---
 
-# 📂 Estructura del proyecto
+# 📂 Estructura del Proyecto
 
 ```text
-src/
+TnkIntellij/
 │
-├── config/
-│   ├── config_loader.py
-│   └── game_config.py
+├── src/
+│   │
+│   ├── config/
+│   │   ├── config_loader.py
+│   │   └── game_config.py
+│   │
+│   ├── database/
+│   │   ├── connection.py
+│   │   ├── sqlite_connection.py
+│   │   └── create_sqlite_tables.py
+│   │
+│   ├── migration/
+│   │   ├── load_txt_dual_clean_log.py
+│   │   └── migrate_railway_to_bkp_local.py
+│   │
+│   ├── repository/
+│   │   ├── game_repository.py
+│   │   └── sqlite_game_repository.py
+│   │
+│   ├── services/
+│   │   ├── generator.py
+│   │   └── validator.py
+│   │
+│   ├── utils/
+│   │   └── logger.py
+│   │
+│   ├── run_tinka.py
+│   ├── run_kabala.py
+│   └── check_duplicates.py
 │
+├── data/
 ├── database/
-│   ├── connection.py
-│   ├── sqlite_connection.py
-│   └── create_sqlite_tables.py
+├── logs/
+├── output/
 │
-├── migration/
-│   ├── load_txt_dual_clean_log.py
-│   └── migrate_railway_to_bkp_local.py
-│
-├── repository/
-│   ├── game_repository.py
-│   └── sqlite_game_repository.py
-│
-├── services/
-│   ├── generator.py
-│   └── validator.py
-│
-├── utils/
-│   └── logger.py
-│
-├── run_tinka.py
-├── run_kabala.py
-└── check_duplicates.py
+├── config.ini
+└── exportar_codigo.py
 ```
 
 ---
 
-# ⚙️ Tecnologías utilizadas
+# ⚙️ Tecnologías Utilizadas
 
-* Python 3.x
-* SQLite
-* MySQL
-* mysql-connector-python
-* Logging estándar de Python
+| Tecnología             | Uso                           |
+| ---------------------- | ----------------------------- |
+| Python 3.x             | Lenguaje principal            |
+| SQLite                 | Caché local y fuente primaria |
+| MySQL                  | Sincronización y respaldo     |
+| Railway                | Base de datos principal       |
+| mysql-connector-python | Acceso a MySQL                |
+| logging                | Registro de eventos           |
 
 ---
 
-# 🗄️ Almacenamiento de datos
+# 🗄️ Almacenamiento de Datos
 
-## Railway
+## ☁️ Railway
 
-Base de datos principal y fuente oficial de información.
+Fuente oficial de información histórica.
 
-## SQLite
+Contiene la totalidad de sorteos disponibles.
+
+---
+
+## 💾 SQLite
 
 Base local utilizada por el generador.
 
 Ventajas:
 
-* Mayor velocidad
-* Menor dependencia de Internet
 * Operación offline
-* Compatible con futuras APK Android
-
-## MySQL Local
-
-Uso opcional como respaldo o entorno de desarrollo.
+* Menor latencia
+* Menor dependencia de Internet
+* Ideal para futuras aplicaciones móviles
 
 ---
 
-# 🔄 Flujo de sincronización
+## 🖥️ MySQL Local
+
+Uso opcional como respaldo o entorno de desarrollo.
+
+No es obligatorio para la operación del generador.
+
+---
+
+# 🔄 Flujo de Sincronización
 
 ## 1. Carga de archivos TXT
 
@@ -130,15 +166,17 @@ python -m src.migration.load_txt_dual_clean_log
 
 Procesa archivos históricos y los inserta en Railway.
 
+Si MySQL local está disponible también puede actualizarlo.
+
 ---
 
-## 2. Sincronización hacia SQLite
+## 2. Actualización de SQLite
 
 ```bash
 python -m src.migration.migrate_railway_to_bkp_local
 ```
 
-Obtiene la información desde Railway y actualiza SQLite.
+Obtiene la información desde Railway y reconstruye SQLite.
 
 ---
 
@@ -158,45 +196,59 @@ python -m src.run_kabala
 
 ---
 
-# 📂 Formato TXT
+# 📂 Formato de Archivos TXT
 
 Ejemplo:
 
 ```text
-22/04/2026  22 01 40 52 23 25
-19/04/2026  31 36 50 17 32 28
+22/04/2026 22 01 40 52 23 25
+19/04/2026 31 36 50 17 32 28
 ```
 
-Durante la importación:
+Durante la importación el sistema realiza:
 
 * Conversión automática de fechas
 * Ordenamiento de números
 * Eliminación de ceros a la izquierda
-* Validación de registros
-* Detección de duplicados
+* Validación de rangos
+* Detección de registros inválidos
+* Control de duplicados
 
 ---
 
-# 🧠 Reglas del generador
+# 🧠 Reglas de Validación
 
-El sistema evita combinaciones que:
+El generador rechaza combinaciones que:
 
-* Repitan combinaciones históricas
-* Sean demasiado similares a sorteos recientes
-* Presenten patrones repetitivos
-* Contengan exceso de números pares o impares
-* Tengan distribuciones poco equilibradas
-* Incumplan reglas estadísticas definidas para cada juego
+* Ya existieron históricamente
+* Son demasiado similares a sorteos recientes
+* Presentan exceso de pares o impares
+* Contienen demasiados consecutivos
+* Tienen rango insuficiente
+* Repiten patrones históricos
+* Poseen similitud elevada mediante índice de Jaccard
+* Presentan distancia euclidiana demasiado cercana a sorteos anteriores
+
+Las reglas son configurables por juego.
 
 ---
 
-# 🔍 Verificación de duplicados
+# 🔍 Verificación de Duplicados
 
 ```bash
 python -m src.check_duplicates
 ```
 
-Permite identificar combinaciones históricas repetidas dentro de SQLite.
+Permite detectar combinaciones históricas repetidas.
+
+Actualmente se identificaron:
+
+| Juego  | Combinaciones repetidas |
+| ------ | ----------------------: |
+| Tinka  |                       2 |
+| Kábala |                       7 |
+
+Estas combinaciones son consideradas una única combinación histórica por el generador.
 
 ---
 
@@ -208,36 +260,74 @@ Los logs se almacenan en:
 logs/
 ```
 
-Incluyendo:
+Incluyendo eventos de:
 
-* Sincronización
-* Migraciones
 * Generación
-* Validaciones
-* Errores
+* Validación
+* Migraciones
+* Sincronización
+* Carga de archivos TXT
+* Errores y advertencias
+
+---
+
+# 💾 Operación Offline
+
+Una vez sincronizada SQLite, el sistema puede:
+
+* Generar combinaciones
+* Consultar historial
+* Aplicar validaciones
+* Detectar duplicados
+
+sin necesidad de conexión a Internet.
+
+La nube se utiliza únicamente para actualización de datos.
 
 ---
 
 # 🔐 Configuración
 
-Las credenciales deben configurarse en:
+Las credenciales deben almacenarse en:
 
 ```text
 config.ini
 ```
 
-No incluir credenciales reales en repositorios públicos.
+Recomendaciones:
+
+* No subir credenciales a GitHub
+* Mantener configuraciones separadas para desarrollo y producción
+* Incluir `config.ini` en `.gitignore`
 
 ---
 
-# 🚀 Objetivo del proyecto
+# 🚀 Objetivo del Proyecto
 
-La arquitectura actual está diseñada para evolucionar hacia una aplicación móvil Android donde SQLite actuará como almacenamiento local y Railway como fuente de sincronización de datos.
+La arquitectura actual está orientada a evolucionar hacia una aplicación Android donde:
+
+```text
+Railway/API
+      │
+      ▼
+   SQLite
+      │
+      ▼
+ Generator
+```
+
+manteniendo operación offline y sincronización periódica de datos.
 
 ---
 
-# ⚠️ Aviso
+# 📌 Autor
 
-Este sistema realiza análisis estadístico y generación de combinaciones numéricas.
+Proyecto personal de Hugo Ramos M para análisis estadístico y generación de combinaciones numéricas.
 
-No predice resultados futuros ni garantiza premios.
+---
+
+# ⚠️ Disclaimer
+
+Este sistema realiza análisis estadístico y generación aleatoria de combinaciones numéricas.
+
+No predice resultados futuros ni garantiza premios o resultados reales.
