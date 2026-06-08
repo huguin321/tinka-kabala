@@ -4,23 +4,23 @@ from src.utils.logger import setup_logger
 
 
 def main():
-    setup_logger()
+    setup_logger("tinka")
 
-    tinka = generate_numbers(
-        TINKA_CONFIG["max_number"],
-        TINKA_CONFIG["numbers_count"],
-        TINKA_CONFIG["table"]
-    )
+    tinka = generate_numbers(TINKA_CONFIG["table"])
 
-    print("Tinka:", tinka)
+    if tinka:
+        print("Tinka:", tinka)
+    else:
+        print("❌ No se pudo generar una combinación válida para Tinka")
 
-    kabala = generate_numbers(
-        KABALA_CONFIG["max_number"],
-        KABALA_CONFIG["numbers_count"],
-        KABALA_CONFIG["table"]
-    )
+    setup_logger("kabala")
 
-    print("Kábala:", kabala)
+    kabala = generate_numbers(KABALA_CONFIG["table"])
+
+    if kabala:
+        print("Kábala:", kabala)
+    else:
+        print("❌ No se pudo generar una combinación válida para Kábala")
 
 
 if __name__ == "__main__":

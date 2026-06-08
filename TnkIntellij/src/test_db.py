@@ -2,7 +2,7 @@ from src.database.connection import get_connection
 
 
 def main():
-    conn = get_connection()
+    conn = get_connection("test_db")
 
     if conn:
         print("Conexión exitosa")

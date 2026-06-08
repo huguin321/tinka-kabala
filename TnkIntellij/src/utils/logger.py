@@ -1,22 +1,43 @@
 import logging
 import os
 
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+LOG_DIR = os.path.join(BASE_DIR, "logs")
+
+APP_LOGGER_NAME = "tinka_app"
+
 
 def setup_logger(game_name):
-    log_dir = "logs"
-    os.makedirs(log_dir, exist_ok=True)
+    """
+    Configura el logger de la aplicación de forma aislada,
+    sin afectar librerías de terceros.
+    """
+    os.makedirs(LOG_DIR, exist_ok=True)
 
-    log_file = os.path.join(log_dir, f"{game_name.lower()}.log")
+    log_file = os.path.join(LOG_DIR, f"{game_name.lower()}.log")
+
+    logger = logging.getLogger(APP_LOGGER_NAME)
+    logger.setLevel(logging.INFO)
 
     # Limpiar handlers previos
-    for handler in logging.root.handlers[:]:
-        logging.root.removeHandler(handler)
+    logger.handlers.clear()
 
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
-        handlers=[
-            logging.FileHandler(log_file, encoding="utf-8"),
-            logging.StreamHandler()
-        ]
+    formatter = logging.Formatter(
+        "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
     )
+
+    # Handler archivo
+    file_handler = logging.FileHandler(log_file, encoding="utf-8")
+    file_handler.setFormatter(formatter)
+
+    # Handler consola
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(formatter)
+
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
+
+    # Evitar propagación al root logger
+    logger.propagate = False
+
+    return logger

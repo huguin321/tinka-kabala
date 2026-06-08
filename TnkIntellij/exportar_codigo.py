@@ -1,6 +1,7 @@
 from pathlib import Path
 
-ROOT = Path(r"D:\Tinka\TnkIntellij")
+# 📌 USAR RUTA DINÁMICA (donde está el script)
+ROOT = Path(__file__).resolve().parent
 OUTPUT = ROOT / "codigo_fuente.txt"
 
 IGNORE_DIRS = {".idea", ".venv", "__pycache__", ".git", "output"}
@@ -11,7 +12,7 @@ def should_skip(path: Path) -> bool:
     return any(part in IGNORE_DIRS for part in path.parts) or path.name in IGNORE_FILES
 
 
-# 🔥 LECTOR INTELIGENTE (SOLUCIÓN AL PROBLEMA)
+# 🔥 LECTOR INTELIGENTE
 def read_file_smart(path: Path) -> str:
     encodings = ["utf-8", "utf-8-sig", "cp1252", "latin-1"]
 
@@ -21,9 +22,11 @@ def read_file_smart(path: Path) -> str:
         except UnicodeDecodeError:
             continue
 
-    # último recurso
     return path.read_text(encoding="utf-8", errors="replace")
 
+
+# 🔥 ASEGURAR QUE LA CARPETA EXISTE
+OUTPUT.parent.mkdir(parents=True, exist_ok=True)
 
 files = sorted(
     [p for p in ROOT.rglob("*.py") if not should_skip(p)],
@@ -38,10 +41,8 @@ with OUTPUT.open("w", encoding="utf-8", newline="\n") as out:
         out.write(f"{rel}\n")
         out.write(f"{'=' * 80}\n\n")
 
-        # 🔥 AQUÍ ESTÁ EL CAMBIO CLAVE
         content = read_file_smart(file_path)
         out.write(content)
-
         out.write("\n")
 
-print(f"Generado: {OUTPUT}")
+print(f"✅ Generado: {OUTPUT}")

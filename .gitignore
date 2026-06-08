@@ -7,7 +7,27 @@ __pycache__/
 
 # Logs
 logs/
+*.log
 
 # IDE
 .idea/
 .vscode/
+
+# Archivos de sistema Windows
+Thumbs.db
+*.db
+
+# Archivos temporales
+*.tmp
+*.temp
+temp/
+tmp/
+
+# Backups y archivos _bkp_
+_bkp_*.txt
+bak/
+
+# Archivos comprimidos
+*.zip
+*.rar
+*.7z

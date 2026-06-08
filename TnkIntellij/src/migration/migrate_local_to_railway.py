@@ -1,17 +1,19 @@
 import mysql.connector
 
-from src.config.config_loader import load_config
+from src.config.config_loader import load_config, load_local_config
 
 
 # =========================
 # CONEXIÓN LOCAL
 # =========================
 def get_local_connection():
+    config = load_local_config()
+
     return mysql.connector.connect(
-        host="localhost",
-        user="root",
-        password="M14J35u5=uWu",
-        database="tinka"
+        host=config["host"],
+        user=config["user"],
+        password=config["password"],
+        database=config["database"]
     )
 
 
@@ -35,12 +37,9 @@ def get_railway_connection():
 # =========================
 def fetch_all_data(conn, table):
     cursor = conn.cursor()
-
     cursor.execute(f"SELECT * FROM {table}")
-
     data = cursor.fetchall()
     columns = cursor.column_names
-
     cursor.close()
     return data, columns
 
@@ -50,15 +49,11 @@ def fetch_all_data(conn, table):
 # =========================
 def insert_data(conn, table, columns, data):
     cursor = conn.cursor()
-
     cols = ",".join(columns)
     placeholders = ",".join(["%s"] * len(columns))
-
     sql = f"INSERT INTO {table} ({cols}) VALUES ({placeholders})"
-
     cursor.executemany(sql, data)
     conn.commit()
-
     cursor.close()
 
 
@@ -80,7 +75,6 @@ def migrate_table(table_name):
 
         # 📥 leer local
         data, columns = fetch_all_data(local_conn, table_name)
-
         print(f"➡️ Registros encontrados en LOCAL: {len(data)}")
 
         if not data:
@@ -89,7 +83,6 @@ def migrate_table(table_name):
 
         # 🚀 insertar en Railway
         insert_data(railway_conn, table_name, columns, data)
-
         print(f"✅ Migración completada: {table_name}")
 
     except Exception as e:

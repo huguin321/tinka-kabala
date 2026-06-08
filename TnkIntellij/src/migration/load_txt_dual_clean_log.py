@@ -1,75 +1,150 @@
+import logging
 import os
 from datetime import datetime
 
 import mysql.connector
 
-from src.config.config_loader import load_config
+from src.config.config_loader import load_config, load_local_config, load_connection_config
+from src.config.game_config import TINKA_CONFIG, KABALA_CONFIG
 
 # =========================
 # CONFIG
 # =========================
 FILE_MAP = {
-    "Resul_Tnk.txt": "TblTinka",
-    "Resul_Kbl.txt": "TblKabala"
+    "Resul_Tnk.txt": TINKA_CONFIG,
+    "Resul_Kbl.txt": KABALA_CONFIG
 }
 
+TABLAS_PERMITIDAS = {"TblTinka", "TblKabala"}
+CONNECTION_CONFIG = load_connection_config()
+RAILWAY_CONFIG = load_config()
+LOCAL_CONFIG = load_local_config()
+
+logger = logging.getLogger("load_txt")
+
 
 # =========================
-# CONEXIONES
+# VALIDACIÓN DE TABLA
+# =========================
+def validar_tabla(table_name):
+    if table_name not in TABLAS_PERMITIDAS:
+        raise ValueError(f"❌ Tabla no permitida: {table_name}")
+
+
+# =========================
+# CONEXIONES MySQL
 # =========================
 def get_local_connection():
-    return mysql.connector.connect(
-        host="localhost",
-        user="root",
-        password="M14J35u5=uWu",
-        database="tinka"
-    )
+    try:
+        conn = mysql.connector.connect(
+            host=LOCAL_CONFIG["host"],
+            user=LOCAL_CONFIG["user"],
+            password=LOCAL_CONFIG["password"],
+            database=LOCAL_CONFIG["database"],
+            connection_timeout=CONNECTION_CONFIG["timeout"]
+        )
+        logger.info("Conexión LOCAL establecida")
+        return conn
+    except mysql.connector.Error as e:
+        logger.warning(f"LOCAL no disponible: {e}")
+        return None
 
 
 def get_railway_connection():
-    config = load_config()
-
-    return mysql.connector.connect(
-        host=config["host"],
-        user=config["user"],
-        password=config["password"],
-        database=config["database"],
-        port=int(config["port"])
-    )
+    try:
+        conn = mysql.connector.connect(
+            host=RAILWAY_CONFIG["host"],
+            user=RAILWAY_CONFIG["user"],
+            password=RAILWAY_CONFIG["password"],
+            database=RAILWAY_CONFIG["database"],
+            port=int(RAILWAY_CONFIG["port"]),
+            connection_timeout=CONNECTION_CONFIG["timeout"]
+        )
+        logger.info("Conexión RAILWAY establecida")
+        return conn
+    except mysql.connector.Error as e:
+        logger.warning(f"RAILWAY no disponible: {e}")
+        return None
 
 
 # =========================
 # LEER Y LIMPIAR TXT
 # =========================
-def read_and_clean(file_path):
+def read_and_clean(file_path, game_config):
     registros = []
+    errores = []
+
+    min_num = game_config["min_number"]
+    max_num = game_config["max_number"]
+    numeros_esperados = game_config["numbers_count"]
 
     with open(file_path, "r", encoding="utf-8") as file:
-        for line in file:
+        for num_linea, line in enumerate(file, start=1):
             line = line.strip()
             if not line:
                 continue
 
             parts = line.split()
 
-            # fecha
-            fecha_raw = parts[0]
-            fecha = datetime.strptime(fecha_raw, "%d/%m/%Y").date()
+            # Validar que haya al menos un elemento antes de acceder a parts[0]
+            if not parts:
+                errores.append(f"  Línea {num_linea}: línea vacía o sin contenido válido")
+                continue
 
-            # números → quitar ceros + ordenar
-            numeros = sorted([int(n) for n in parts[1:]])
+            # Validar fecha
+            try:
+                fecha = datetime.strptime(parts[0], "%d/%m/%Y").date()
+            except ValueError:
+                errores.append(f"  Línea {num_linea}: fecha inválida → '{parts[0]}'")
+                continue
+
+            # Validar cantidad de números
+            nums_raw = parts[1:]
+            if len(nums_raw) != numeros_esperados:
+                errores.append(
+                    f"  Línea {num_linea}: se esperaban {numeros_esperados} números, "
+                    f"se encontraron {len(nums_raw)} → {nums_raw}"
+                )
+                continue
+
+            # Validar que sean numéricos
+            try:
+                numeros = sorted([int(n) for n in nums_raw])
+            except ValueError:
+                errores.append(f"  Línea {num_linea}: valores no numéricos → {nums_raw}")
+                continue
+
+            # Validar duplicados
+            if len(set(numeros)) != numeros_esperados:
+                errores.append(f"  Línea {num_linea}: números duplicados → {numeros}")
+                continue
+
+            # Validar rango
+            fuera_de_rango = [n for n in numeros if n < min_num or n > max_num]
+            if fuera_de_rango:
+                errores.append(
+                    f"  Línea {num_linea}: números fuera de rango [{min_num}-{max_num}] "
+                    f"→ {fuera_de_rango}"
+                )
+                continue
 
             registros.append((fecha, *numeros))
 
-    # ordenar cronológicamente
+    if errores:
+        logger.warning(f"Líneas ignoradas en {os.path.basename(file_path)}:")
+        for e in errores:
+            logger.warning(e)
+
     registros.sort(key=lambda x: x[0])
+    logger.info(f"TXT leído: {len(registros)} registros válidos en {os.path.basename(file_path)}")
     return registros
 
 
 # =========================
-# INSERT OPTIMIZADO
+# INSERT MySQL — RÁPIDO CON executemany
 # =========================
 def process_records(conn, table, data, db_name):
+    validar_tabla(table)
     cursor = conn.cursor()
 
     insert_sql = f"""
@@ -78,77 +153,99 @@ def process_records(conn, table, data, db_name):
         VALUES (%s,%s,%s,%s,%s,%s,%s)
     """
 
-    insertados = 0
-    ignorados = 0
+    try:
+        cursor.executemany(insert_sql, data)
+        conn.commit()
 
-    for registro in data:
-        cursor.execute(insert_sql, registro)
+        insertados = cursor.rowcount
+        ignorados = len(data) - insertados
 
-        if cursor.rowcount == 1:
-            print(f"✅ [{db_name}] INSERTADO: {registro}")
-            insertados += 1
-        else:
-            print(f"⚠️ [{db_name}] YA EXISTE: {registro}")
-            ignorados += 1
+        logger.info(f"[{db_name}] Resumen → insertados: {insertados}, ignorados: {ignorados}")
 
-    conn.commit()
-    cursor.close()
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"[{db_name}] Error, rollback ejecutado: {e}")
 
-    print(f"\n📊 [{db_name}] RESUMEN:")
-    print(f"✔ Insertados: {insertados}")
-    print(f"⚠️ Ignorados: {ignorados}")
+    finally:
+        cursor.close()
 
 
 # =========================
 # PROCESAR ARCHIVO
 # =========================
 def process_file(file_path):
-    file_name = os.path.basename(file_path)  # 👈 CLAVE
+    file_name = os.path.basename(file_path)
 
     if file_name not in FILE_MAP:
-        print(f"❌ Archivo no reconocido: {file_name}")
+        logger.error(f"Archivo no reconocido: {file_name}")
         return
 
-    table = FILE_MAP[file_name]
+    game_config = FILE_MAP[file_name]
+    table = game_config["table"]
 
-    print(f"\n📄 Procesando: {file_name} → {table}")
+    logger.info(f"{'=' * 60}")
+    logger.info(f"Procesando: {file_name} → {table}")
+    logger.info(f"{'=' * 60}")
 
-    data = read_and_clean(file_path)
-
-    print(f"➡️ Registros procesados: {len(data)}")
+    # PASO 1 — Leer y limpiar TXT
+    data = read_and_clean(file_path, game_config)
 
     if not data:
-        print("⚠️ Sin datos")
+        logger.warning(f"Sin datos válidos en {file_name}")
         return
 
+    # PASO 2 — Cargar a MySQL (LOCAL + RAILWAY)
     local_conn = get_local_connection()
     railway_conn = get_railway_connection()
 
-    try:
-        print("\n--- LOCAL ---")
-        process_records(local_conn, table, data, "LOCAL")
+    if not local_conn and not railway_conn:
+        logger.error("Sin conexión a LOCAL ni a RAILWAY — carga MySQL omitida")
+    else:
+        if local_conn:
+            logger.info("--- Cargando a LOCAL ---")
+            process_records(local_conn, table, data, "LOCAL")
+            local_conn.close()
+        else:
+            logger.warning("LOCAL omitido")
 
-        print("\n--- RAILWAY ---")
-        process_records(railway_conn, table, data, "RAILWAY")
-
-    except Exception as e:
-        print(f"❌ Error: {e}")
-
-    finally:
-        local_conn.close()
-        railway_conn.close()
+        if railway_conn:
+            logger.info("--- Cargando a RAILWAY ---")
+            process_records(railway_conn, table, data, "RAILWAY")
+            railway_conn.close()
+        else:
+            logger.warning("RAILWAY omitido")
 
 
 # =========================
 # MAIN
 # =========================
 def main():
+    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+    log_dir = os.path.join(base_dir, "logs")
+    os.makedirs(log_dir, exist_ok=True)
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+        handlers=[
+            logging.StreamHandler(),
+            logging.FileHandler(os.path.join(log_dir, "load_txt.log"), encoding="utf-8")
+        ]
+    )
+
+    data_dir = os.path.join(base_dir, "data")
+
     files = [
-        r"D:\Tinka\TnkIntellij\data\Resul_Tnk.txt",
-        r"D:\Tinka\TnkIntellij\data\Resul_Kbl.txt"
+        os.path.join(data_dir, "Resul_Tnk.txt"),
+        os.path.join(data_dir, "Resul_Kbl.txt")
     ]
 
     for file in files:
+        if not os.path.exists(file):
+            logger.error(f"Archivo no encontrado: {file}")
+            continue
+
         process_file(file)
 
 
